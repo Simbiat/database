@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
-namespace Database;
+namespace SimbiatDB;
 
 final class Pool
 {   
     private static $pool = [];
     private static $activeconnection = NULL;
     
-    public static function openConnection(\Database\Config $config = NULL, string $id = NULL): \PDO
+    public static function openConnection(\SimbiatDB\Config $config = NULL, string $id = NULL): \PDO
     {
         if (empty($config) && empty($id)) {
             if (empty(self::$pool)) {
-                throw new \UnexpectedValueException('Neither Database\\Config or ID was provided and there are no connections in pool to work with.');
+                throw new \UnexpectedValueException('Neither SimbiatDB\\Config or ID was provided and there are no connections in pool to work with.');
             } else {
                 if (empty(self::$activeconnection)) {
                     reset(self::$pool);
@@ -46,7 +46,7 @@ final class Pool
         }
     }
     
-    public static function closeConnection(\Database\Config $config = NULL, string $id = NULL): self
+    public static function closeConnection(\SimbiatDB\Config $config = NULL, string $id = NULL): self
     {
         if (!empty($id)) {
             unset(self::$pool[$id]);
@@ -63,7 +63,7 @@ final class Pool
         return $this;
     }
     
-    public static function changeConnection(\Database\Config $config = NULL, string $id = NULL): self
+    public static function changeConnection(\SimbiatDB\Config $config = NULL, string $id = NULL): self
     {
         $this->openConnection($config, $id);
         return $this;

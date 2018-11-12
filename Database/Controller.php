@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-namespace Database;
+namespace SimbiatDB;
 
 class Controller
 {    
@@ -18,7 +18,7 @@ class Controller
     
     public function __construct()
     {
-        $this->dbh = (new \Database\Pool)->openConnection();
+        $this->dbh = (new \SimbiatDB\Pool)->openConnection();
     }
     
     public function query($queries, array $bindings = [], $fetch_style = \PDO::FETCH_ASSOC, $fetch_argument = NULL, array $ctor_args = [])
