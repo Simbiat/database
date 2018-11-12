@@ -1,0 +1,25 @@
+{
+    "name": "simbiat/database",
+    "type": "library",
+    "keywords": ["database","php","pdo"],
+    "description": "Set of classes for database pool and helper.",
+    "homepage": "https://github.com/Simbiat/database",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Dmitry Kustov",
+            "email": "simbiat@outlook.com",
+            "homepage": "https://simbiat.ru",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^7.1",
+        "ext-curl": "*"
+    },
+    "autoload": {
+        "psr-0": {
+            "Database\\": "/"
+        }
+    }
+}
