@@ -8,6 +8,7 @@ class Controller
     const selects = [
         'SELECT', 'SHOW', 'HANDLER', 'ANALYZE', 'CHECK', 'DESCRIBE', 'DESC', 'EXPLAIN', 'HELP'
     ];
+    #Static for convinience, in case object gets destroyed, but you still want to get total number
     public static $queries = 0;
     private $dbh;
     private $debug = false;
@@ -56,7 +57,6 @@ class Controller
                             $this->result = $sql->fetchAll($fetch_style);
                         }
                     } else {
-                    echo 'here';
                         $this->result = $sql->rowCount();
                     }
                     return true;
@@ -121,7 +121,7 @@ class Controller
                         throw $e;
                     }
                 }
-                #Sleep and then retry
+                #If deadlock - sleep and then retry
                 if ($deadlock) {
                     sleep($this->sleep);
                     continue;
@@ -135,6 +135,7 @@ class Controller
         return false;
     }
     
+    #Function mainly for convinience and some types enforcing, which sometimes 'fail' in PDO itself
     private function binding(\PDOStatement $sql, array $bindings = []): \PDOStatement
     {
         foreach ($bindings as $binding=>$value) {
@@ -210,7 +211,9 @@ class Controller
         return (\DateTime::createFromFormat('U.u', number_format($time, 6, '.', '')))->format($format);
     }
     
-    #Useful semantic wrappers
+    ##########################
+    #Useful semantic wrappers#
+    ##########################
     public function selectAll(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): array
     {
         if (preg_match('/^SELECT/mi', $query) === 1) {
@@ -306,7 +309,9 @@ class Controller
         }
     }
     
-    #Setters and getters
+    #####################
+    #Setters and getters#
+    #####################
     public function getMaxTime(): int
     {
         return $this->maxruntime;
@@ -329,9 +334,37 @@ class Controller
         return $this;
     }
     
+    public function getTries(): int
+    {
+        return $this->maxtries;
+    }
+    
+    public function setTries(int $tries): self
+    {
+        $this->maxtries = abs($tries);
+        return $this;
+    }
+    
+    public function getSleep(): int
+    {
+        return $this->sleep;
+    }
+    
+    public function setSleep(int $sleep): self
+    {
+        $this->sleep = abs($sleep);
+        return $this;
+    }
+    
     public function getResult()
     {
         return $this->result;
+    }
+    
+    #Simply for convinience, in case you don't want to call a static
+    public function getQueries(): int
+    {
+        return self::$queries;
     }
 }
 ?>

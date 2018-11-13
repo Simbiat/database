@@ -22,7 +22,7 @@ final class Pool
                 }
             }
         } elseif (!empty($config)) {
-            #force restricted options to ensure identical set of options
+            #Force 'restricted' options to ensure identical set of options
             $config->getOptions();
             foreach(self::$pool as $key=>$connection) {
                 if ($connection['config'] == $config) {
