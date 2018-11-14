@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace SimbiatDB;
 
-class Config
+final class Config
 {
     private $user = NULL;
     private $password = NULL;
