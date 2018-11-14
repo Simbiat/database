@@ -23,6 +23,32 @@ This is a set of 3 classes for convinience of work with databases, a wrapper and
 ## How to use
 ###### *Please, note, that I am using MySQL as main DB engine in my projects, thus I may miss some peculiarities of other engines. Please, let me know of them, so that they can be incorporated.*
 
-*to be filled*
+First you need to create a \Config object and set it's parameters like this:
+```php
+$config = (new \SimbiatDB\Config)->setUser('user')->setPassword('password')->setDB('database');
+```
+The above line is the minimum you will require. Additionally you can set driver options like this:
+```php
+$config->setOption(\PDO::MYSQL_ATTR_FOUND_ROWS, true)->setOption(\PDO::MYSQL_ATTR_INIT_COMMAND, 'SET @@global.character_set_client = \'utf8mb4\', @@global.character_set_connection = \'utf8mb4\', @@global.character_set_database = \'utf8mb4\', @@global.character_set_results = \'utf8mb4\', @@global.character_set_server = \'utf8mb4\', @@global.time_zone=\'+00:00\'');
+```
+After you set it up to your liking (can be done in one line), you need to add it to pool:
+```php
+(new \SimbiatDB\Pool)->openConnection($config, 'example');
+```
+Passing ID is not required, but will improve your life if you will need to juggle multiple connections.
 
-If you are using a set of connections, I recommend sending your own IDs on connections creation for easse of use, otherwise, they will be generated automatically.
+If connection is established successfully you then can get \PDO object for it by not sending any parameters to the pool:
+```php
+(new \SimbiatDB\Pool)->openConnection();
+```
+Or sending a previous `$config` or connection ID if you need a specific one. \Controller class uses variant without parameters for flexibility, but can be overriden, if deemed necessary.
+
+To utilize \Controller you need to establish as shown above adn then call either it `query()` function or any of the wrappers. For example this line will count rows in a table and return only the number of those rows, that is an integer:
+```php
+(new \SimbiatDB\Controller)->count('SELECT COUNT(*) FROM `table`');
+```
+And this one will return a boolean, advising if something exists in a table:
+```php
+(new \SimbiatDB\Controller)->check('SELECT * FROM `table` WHERE `time`=:value', [':value'=>['', 'time']]);
+```
+The above example also shows one of possible ways to set bindings. Regular \PDO allows binding values like `hook, value, type`, but \Controller expects an array for `value` if you want to send a non-string one or a special value, like the above mentioned `time`. Since We are sending an empty value for `time` \Controller will take current microtime and convert and bind it in `Y-m-d H:i:s.u` format.
