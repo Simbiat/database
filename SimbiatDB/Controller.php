@@ -46,7 +46,6 @@ class Controller
                         flush();
                     }
                     if (preg_match('/^'.implode('|', self::selects).'/mi', $queries) === 1) {
-                    var_dump($queries);
                         if ($fetch_argument === 'row') {
                             $this->result = $sql->fetch($fetch_style);
                         } elseif ($fetch_style === \PDO::FETCH_COLUMN || $fetch_style === \PDO::FETCH_FUNC) {
