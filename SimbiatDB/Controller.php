@@ -159,10 +159,12 @@ class Controller
                     case 'integer':
                     case 'number':
                     case 'limit':
+                    case 'offset':
                         $sql->bindValue($binding, intval($value[0]), \PDO::PARAM_INT);
                         break;
                     case 'str':
                     case 'string':
+                    case 'text':
                     case 'float':
                     case 'varchar':
                     case 'varchar2':
