@@ -22,7 +22,7 @@ class Controller
         $this->dbh = (new \SimbiatDB\Pool)->openConnection();
     }
     
-    public function query($queries, array $bindings = [], $fetch_style = \PDO::FETCH_ASSOC, $fetch_argument = NULL, array $ctor_args = [])
+    public function query($queries, array $bindings = [], $fetch_style = \PDO::FETCH_ASSOC, $fetch_argument = NULL, array $ctor_args = []): bool
     {
         $try = 0;
         do {
@@ -125,13 +125,12 @@ class Controller
                     sleep($this->sleep);
                     continue;
                 } else {
-                    return false;
+                    throw $e;
                 }
             }
             break;
         } while ($try <= $this->maxtries);
         throw new \Exception('Deadlock encountered for set maximum of '.$this->maxtries.' tries.');
-        return false;
     }
     
     #Function mainly for convinience and some types enforcing, which sometimes 'fail' in PDO itself
