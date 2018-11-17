@@ -34,8 +34,10 @@ final class Pool
                 $id = uniqid('', true);
             }
             self::$pool[$id]['config'] = $config;
-            self::$activeconnection = self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
-            return self::$pool[$id]['connection'];
+            self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
+            self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_EMULATE_PREPARES, true);
+            self::$activeconnection = self::$pool[$id]['connection'];
+            return self::$activeconnection;
         } elseif (empty($config) && !empty($id)) {
             if (empty(self::$pool[$id])) {
                 throw new \UnexpectedValueException('No connection with ID `'.$id.'` found.');
