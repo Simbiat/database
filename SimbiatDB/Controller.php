@@ -65,26 +65,40 @@ class Controller
                     }
                     $this->dbh->beginTransaction();
                     foreach ($queries as $sequence=>$query) {
-                        if (!is_string($query[0])) {
-                            throw new \UnexpectedValueException('Query #'.$sequence.' in bulk is not a string.');
+                        if (is_string($query)) {
+                            $actualquery = $query;
+                        } else {
+                            if (is_array($query)) {
+                                if (!is_string($query[0])) {
+                                    throw new \UnexpectedValueException('Query #'.$sequence.' in bulk is not a string.');
+                                } else {
+                                    $actualquery = $query[0];
+                                }
+                            } else {
+                                if (!is_string($query)) {
+                                    throw new \UnexpectedValueException('Query #'.$sequence.' in bulk is not a string.');
+                                }
+                            }
                         }
                         #Check if it's a command which may return rows
-                        if (preg_match('/^'.implode('|', self::selects).'/mi', $query[0]) === 1) {
+                        if (preg_match('/^'.implode('|', self::selects).'/mi', $actualquery) === 1) {
                             trigger_error('A selector command ('.implode(', ', self::selects).') detected in bulk of queries. Output wll not be fetched and may result in errors in further queries. Consider revising.');
                         }
-                        $sql = $this->dbh->prepare($query[0]);
+                        $sql = $this->dbh->prepare($actualquery);
                         #Preparing bindings
-                        if (!empty($query[1])) {
-                            if (is_array($query[1])) {
-                                $sql = $this->binding($sql, array_merge($bindings, $query[1]));
-                            } else {
-                                throw new \UnexpectedValueException('Bindings provided for query #'.$sequence.' are not an array.');
+                        if (is_array($query)) {
+                            if (!empty($query[1])) {
+                                if (is_array($query[1])) {
+                                    $sql = $this->binding($sql, array_merge($bindings, $query[1]));
+                                } else {
+                                    throw new \UnexpectedValueException('Bindings provided for query #'.$sequence.' are not an array.');
+                                }
                             }
                         }
                         #Increasing time limit for potentially long operations (like optimize)
                         set_time_limit($this->maxruntime);
                         if ($this->debug) {
-                            echo $query[0].'<br>';
+                            echo $actualquery.'<br>';
                             ob_flush();
                             flush();
                         }
