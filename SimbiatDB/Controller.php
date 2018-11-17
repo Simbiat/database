@@ -167,13 +167,13 @@ class Controller
                     case 'float':
                     case 'varchar':
                     case 'varchar2':
-                        $sql->bindValue($binding, strval($value[0]), \PDO::PARAM_STR, strlen($value[0]));
+                        $sql->bindValue($binding, strval($value[0]), \PDO::PARAM_STR);
                         break;
                     case 'lob':
                     case 'large':
                     case 'object':
                     case 'blob':
-                        $sql->bindValue($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
+                        $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
                         break;
                     case 'like':
                         $sql->bindValue($binding, '%'.$value[0].'%', \PDO::PARAM_STR);
@@ -182,7 +182,7 @@ class Controller
                         if (is_int($value[1])) {
                             $sql->bindValue($binding, $value[0], $value[1]);
                         } else {
-                            $sql->bindValue($binding, strval($value[0]), \PDO::PARAM_STR, strlen(strval($value[0])));
+                            $sql->bindValue($binding, strval($value[0]), \PDO::PARAM_STR);
                         }
                 }
             }
