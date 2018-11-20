@@ -123,7 +123,7 @@ class Controller
                 }
                 error_log($error);
                 #Check if deadlock
-                if (isset($sql) && $sql->errorCode() == '40001') {
+                if (isset($sql) && ($sql->errorCode() == '40001' || stripos($sql->errorInfo()[2], 'deadlock') !== false)) {
                     $deadlock = true;
                 } else {
                     $deadlock = false;
