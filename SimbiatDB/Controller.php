@@ -300,7 +300,7 @@ class Controller
                 if (empty($this->getResult())) {
                     return 0;
                 } else {
-                    return $this->getResult()[0];
+                    return intval($this->getResult()[0]);
                 }
             } else {
                 return 0;
