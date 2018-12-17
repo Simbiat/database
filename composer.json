@@ -21,5 +21,9 @@
         "psr-0": {
             "SimbiatDB\\": "/"
         }
-    }
+    },
+	"support": {
+		"issues": "https://github.com/Simbiat/database/issues",
+		"source": "https://github.com/Simbiat/database"
+	}
 }
