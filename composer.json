@@ -15,6 +15,7 @@
     ],
     "require": {
         "php": "^7.1",
+        "simbiat/sand-clock": "Collection of functions for presenting time-related objects",
         "ext-pdo": "*"
     },
     "autoload": {

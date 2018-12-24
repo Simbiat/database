@@ -206,23 +206,7 @@ class Controller
     
     private function time($time = 0, string $format = 'Y-m-d H:i:s.u'): string
     {
-        if (is_int($time)) {
-            if (is_numeric($time)) {
-                 if ((int)$time == $time) {
-                    $time = (int)$time;
-                 } else {
-                    $time = strtotime($time);
-                 }
-            } else {
-                $time = strtotime($time);
-            }
-        } else {
-            $time = microtime(true);
-        }
-        if ($time === false) {
-            $time = microtime(true);
-        }
-        return (\DateTime::createFromFormat('U.u', number_format($time, 6, '.', '')))->format($format);
+        return (new \SandClock\Api)->setFormat($format)->format($string);
     }
     
     ##########################
