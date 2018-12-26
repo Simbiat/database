@@ -81,7 +81,7 @@ class Controller
                             }
                         }
                         #Check if it's a command which may return rows
-                        if (preg_match('/(^('.implode('|', self::selects).'))/i', $actualquery) === 1) {
+                        if (preg_match('/(^('.implode('|', self::selects).'))/i', $actualquery) === 1 && preg_match('/^SELECT.*FOR UPDATE$/mi', $actualquery) !== 1) {
                             trigger_error('A selector command ('.implode(', ', self::selects).') detected in bulk of queries. Output wll not be fetched and may result in errors in further queries. Consider revising: '.$actualquery);
                         }
                         $sql = $this->dbh->prepare($actualquery);
