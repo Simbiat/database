@@ -206,7 +206,7 @@ class Controller
     
     private function time($time = 0, string $format = 'Y-m-d H:i:s.u'): string
     {
-        return (new \SandClock\Api)->setFormat($format)->format($string);
+        return (new \SandClock\Api)->setFormat($format)->format($time);
     }
     
     ##########################
