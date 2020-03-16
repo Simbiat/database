@@ -10,11 +10,11 @@ class Controller
     ];
     #Static for convinience, in case object gets destroyed, but you still want to get total number
     public static $queries = 0;
-    private $dbh;
-    private $debug = false;
-    private $maxruntime = 3600; #in seconds
-    private $maxtries = 5;
-    private $sleep = 5; #in seconds
+    private object $dbh;
+    private bool $debug = false;
+    private int $maxruntime = 3600; #in seconds
+    private int $maxtries = 5;
+    private int $sleep = 5; #in seconds
     private $result = NULL;
     
     public function __construct()

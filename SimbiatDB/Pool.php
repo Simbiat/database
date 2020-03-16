@@ -4,8 +4,8 @@ namespace SimbiatDB;
 
 final class Pool
 {   
-    private static $pool = [];
-    private static $activeconnection = NULL;
+    private static array $pool = [];
+    private static ?\PDO $activeconnection = NULL;
     
     public static function openConnection(\SimbiatDB\Config $config = NULL, string $id = NULL): \PDO
     {

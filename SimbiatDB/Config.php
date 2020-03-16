@@ -4,15 +4,15 @@ namespace SimbiatDB;
 
 final class Config
 {
-    private $user = NULL;
-    private $password = NULL;
-    private $driver = 'mysql';
-    private $host = 'localhost';
-    private $port = NULL;
-    private $socket = NULL;
-    private $dbname = NULL;
-    private $charset = 'utf8mb4';
-    private $PDOptions = [
+    private ?string $user = NULL;
+    private ?string $password = NULL;
+    private string $driver = 'mysql';
+    private string $host = 'localhost';
+    private ?int $port = NULL;
+    private ?string $socket = NULL;
+    private ?string $dbname = NULL;
+    private string $charset = 'utf8mb4';
+    private array $PDOptions = [
         \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         \PDO::ATTR_PERSISTENT => false,
         \PDO::ATTR_ORACLE_NULLS => \PDO::NULL_NATURAL,
