@@ -214,66 +214,66 @@ class Controller
     ##########################
     public function selectAll(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): array
     {
-        if (preg_match('/^SELECT/mi', $query) === 1) {
+        if (preg_match('/^'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, $fetchmode) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
                 return [];
             }
         } else {
-            throw new \UnexpectedValueException('Query is not a SELECT.');
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
         }
     }
     
     public function selectRow(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): array
     {
-        if (preg_match('/^SELECT/mi', $query) === 1) {
+        if (preg_match('/^'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, $fetchmode, 'row') && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
                 return [];
             }
         } else {
-            throw new \UnexpectedValueException('Query is not a SELECT.');
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
         }
     }
     
     public function selectColumn(string $query, array $bindings = [], int $column = 0): array
     {
-        if (preg_match('/^SELECT/mi', $query) === 1) {
+        if (preg_match('/^'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
                 return [];
             }
         } else {
-            throw new \UnexpectedValueException('Query is not a SELECT.');
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
         }
     }
     
     public function selectPair(string $query, array $bindings = [], int $column = 0): array
     {
-        if (preg_match('/^SELECT/mi', $query) === 1) {
+        if (preg_match('/^'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_KEY_PAIR, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
                 return [];
             }
         } else {
-            throw new \UnexpectedValueException('Query is not a SELECT.');
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
         }
     }
     
     public function selectUnique(string $query, array $bindings = [], int $column = 0): array
     {
-        if (preg_match('/^SELECT/mi', $query) === 1) {
+        if (preg_match('/^'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
                 return [];
             }
         } else {
-            throw new \UnexpectedValueException('Query is not a SELECT.');
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
         }
     }
     
@@ -290,20 +290,20 @@ class Controller
                 return 0;
             }
         } else {
-            throw new \UnexpectedValueException('Query is not a SELECT COUNT.');
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).' COUNT.');
         }
     }
     
     public function check(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): bool
     {
-        if (preg_match('/^SELECT/mi', $query) === 1) {
+        if (preg_match('/^'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, $fetchmode) && is_array($this->getResult()) && !empty($this->getResult())) {
                 return true;
             } else {
                 return false;
             }
         } else {
-            throw new \UnexpectedValueException('Query is not a SELECT.');
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
         }
     }
     
