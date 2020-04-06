@@ -19,8 +19,8 @@
         "ext-pdo": "*"
     },
     "autoload": {
-        "psr-0": {
-            "SimbiatDB\\": "/"
+        "psr-4": {
+            "SimbiatDB\\": "src/"
         }
     },
 	"support": {
