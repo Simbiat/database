@@ -4,7 +4,7 @@
     "keywords": ["database","php","pdo"],
     "description": "Set of classes for database pool and helper.",
     "homepage": "https://github.com/Simbiat/database",
-    "license": "MIT",
+    "license": "AGPL-3.0-or-later",
     "authors": [
         {
             "name": "Dmitry Kustov",
