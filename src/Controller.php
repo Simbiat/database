@@ -45,7 +45,7 @@ class Controller
                         ob_flush();
                         flush();
                     }
-                    if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $queries) === 1) {
+                    if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $queries) === 1) {
                         if ($fetch_argument === 'row') {
                             $this->result = $sql->fetch($fetch_style);
                         } elseif ($fetch_style === \PDO::FETCH_COLUMN || $fetch_style === \PDO::FETCH_FUNC) {
@@ -215,7 +215,7 @@ class Controller
     #Return full results as multidimensional array (associative by default).
     public function selectAll(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): array
     {
-        if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, $fetchmode) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -229,7 +229,7 @@ class Controller
     #Returns only 1 row from SELECT (essentially LIMIT 1).
     public function selectRow(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): array
     {
-        if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, $fetchmode, 'row') && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -243,7 +243,7 @@ class Controller
     #Returns column (frist by default) even if original SELECT requests for more. Change 3rd parameter accordingly to use another column as key (starting from 0).
     public function selectColumn(string $query, array $bindings = [], int $column = 0): array
     {
-        if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -257,7 +257,7 @@ class Controller
     #Returns a value directly, instead of array containing that value. Useful for getting specific settings from DB. No return typing, since it may vary, so be careful with that.
     public function selectValue(string $query, array $bindings = [], int $column = 0)
     {
-        if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
                 return $this->getResult()[$column];
             } else {
@@ -271,7 +271,7 @@ class Controller
     #Returns key->value pair(s) based on 2 columns. First column (by default) is used as key. Change 3rd parameter accordingly to use another column as key (starting from 0).
     public function selectPair(string $query, array $bindings = [], int $column = 0): array
     {
-        if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_KEY_PAIR, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -285,7 +285,7 @@ class Controller
     #Returns unique values from a column (first by default). Change 3rd parameter accordingly to use another column as key (starting from 0).
     public function selectUnique(string $query, array $bindings = [], int $column = 0): array
     {
-        if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -299,7 +299,7 @@ class Controller
     #Returns count value from SELECT.
     public function count(string $query, array $bindings = array()): int
     {
-        if (preg_match('/^SELECT COUNT/mi', $query) === 1) {
+        if (preg_match('/^\s*SELECT COUNT/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, 0) && is_array($this->getResult())) {
                 if (empty($this->getResult())) {
                     return 0;
@@ -317,7 +317,7 @@ class Controller
     #Returns boolean value indicating, if anything matching SELECT exists.
     public function check(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): bool
     {
-        if (preg_match('/^\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, $fetchmode) && is_array($this->getResult()) && !empty($this->getResult())) {
                 return true;
             } else {
