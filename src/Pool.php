@@ -15,7 +15,11 @@ final class Pool
             } else {
                 if (empty(self::$activeconnection)) {
                     reset(self::$pool);
-                    self::$activeconnection = self::$pool[key(self::$pool)]['connection'];
+                    if (isset(self::$pool[key(self::$pool)]['connection']) && !empty(self::$pool[key(self::$pool)]['connection'])) {
+                        self::$activeconnection = self::$pool[key(self::$pool)]['connection'];
+                    } else {
+                        throw new \UnexpectedValueException('Failed to connect to database server.');
+                    }
                     return self::$activeconnection;
                 } else {
                     return self::$activeconnection;
