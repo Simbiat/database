@@ -122,7 +122,7 @@ class Controller
                     flush();
                 }
                 #Check if deadlock
-                if (isset($sql) && ($sql->errorCode() == '40001' || (is_string($sql->errorInfo()[2]) && preg_match('.*deadlock.*/mis', $sql->errorInfo()[2]) === 1 ))) {
+                if (isset($sql) && ($sql->errorCode() == '40001' || (is_string($sql->errorInfo()[2]) && preg_match('/.*deadlock.*/mis', $sql->errorInfo()[2]) === 1 ))) {
                     $deadlock = true;
                     if ($try == $this->maxtries) {
                         error_log($error);
