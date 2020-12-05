@@ -262,9 +262,9 @@ class Controller
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
-                return $this->getResult()[$column];
+                return ($this->getResult()[$column] ?? NULL);
             } else {
-                return [];
+                return NULL;
             }
         } else {
             throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
