@@ -331,6 +331,43 @@ class Controller
         }
     }
     
+    #Returns array of counts  for each unique value in column.
+    public function countUnique(string $table, string $columnname, string $where = '', string $jointable = '', string $jointype = 'INNER', string $joinon = '', string $joinreturn = '', string $order = 'DESC', int $limit = 0, array $extragroup = []): array
+    {
+        #Prevent negative LIMIT
+        if ($limit < 0) {
+            $limit = 0;
+        }
+        #Sanitize ORDER
+        if (preg_match('/(DESC|ASC)/mi', $order) !== 1) {
+            $order = 'DESC';
+        }
+        #Building query
+        if ($jointable === '') {
+            $query = 'SELECT `'.$table.'`.`'.$columnname.'` AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+        } else {
+            #Check for proper JOIN type
+            if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $jointype) === 1) {
+                #Check if we have a setup to return after JOIN. If it's not set we do not know what o GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names
+                if (empty($joinreturn)) {
+                    throw new \UnexpectedValueException('No value to reutrn after JOIN was provided.');
+                }
+                #Check of we have a column to join on. If not - set its name to the name of original column
+                if (empty($joinon)) {
+                    $joinon = $columnname;
+                }
+                $query = 'SELECT '.$joinreturn.' AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` INNER JOIN `'.$jointable.'` ON `'.$table.'`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+            } else {
+                throw new \UnexpectedValueException('Unsupported type of JOIN ('.$jointype.') was provided.');
+            }
+        }
+        if ($this->query($query) && is_array($this->getResult())) {
+            return $this->getResult();
+        } else {
+            return [];
+        }
+    }
+    
     #####################
     #Setters and getters#
     #####################
