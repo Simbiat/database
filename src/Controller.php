@@ -332,7 +332,19 @@ class Controller
     }
     
     #Returns array of counts  for each unique value in column.
-    public function countUnique(string $table, string $columnname, string $where = '', string $jointable = '', string $jointype = 'INNER', string $joinon = '', string $joinreturn = '', string $order = 'DESC', int $limit = 0, array $extragroup = []): array
+    #$table - table name to count in
+    #$columnname - column to count
+    #$where - optional WHERE condition. Full notations (`table`.`column`) are advised.
+    #$jointable - optional table to JOIN with
+    #$jointype - type of JOIN to use
+    #$joinon - column to JOIN on (defaults to the same column name we are counting).
+    #$joinreturn - mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
+    #$order - order the output
+    #$limit - optional limit of the output
+    #$extragroup - optional list (array) of column names to GROUP by BEFORE the original $columnname or $joinreturn. Full notations (`table`.`column`) are advised.
+    #$altjoin - apply JOIN logic AFTER the original COUNT. In some cases this may provide signifficant performance improvement, since we will be JOINing only a the result, not the whole table. This approach is disabled by default, because depdending on what is sent in $joinreturn and $extragroup it may easily fail or provide unexpected results.
+    #$extracolumns - optional list of additional columns to return on initial SELECT. May sometimes help with errors in case of $altjoin. If this is used you can use `tempresult` in $joinreturn.
+    public function countUnique(string $table, string $columnname, string $where = '', string $jointable = '', string $jointype = 'INNER', string $joinon = '', string $joinreturn = '', string $order = 'DESC', int $limit = 0, array $extragroup = [], bool $altjoin = false, array $extracolumns = []): array
     {
         #Prevent negative LIMIT
         if ($limit < 0) {
@@ -348,7 +360,7 @@ class Controller
         } else {
             #Check for proper JOIN type
             if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $jointype) === 1) {
-                #Check if we have a setup to return after JOIN. If it's not set we do not know what o GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names
+                #Check if we have a setup to return after JOIN
                 if (empty($joinreturn)) {
                     throw new \UnexpectedValueException('No value to reutrn after JOIN was provided.');
                 }
@@ -356,7 +368,11 @@ class Controller
                 if (empty($joinon)) {
                     $joinon = $columnname;
                 }
-                $query = 'SELECT '.$joinreturn.' AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` INNER JOIN `'.$jointable.'` ON `'.$table.'`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+                if ($altjoin === false) {
+                    $query = 'SELECT '.$joinreturn.' AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` INNER JOIN `'.$jointable.'` ON `'.$table.'`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+                } else {
+                    $query = 'SELECT '.$joinreturn.' AS `value`, `count` FROM (SELECT '.(empty($extracolumns) ? '' : implode(', ', $extracolumns).', ').'`'.$table.'`.`'.$columnname.'`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`'.$table.'`.`'.$columnname.'` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit).') `tempresult` INNER JOIN `'.$jointable.'` ON `tempresult`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` ORDER BY `count` '.$order;
+                }
             } else {
                 throw new \UnexpectedValueException('Unsupported type of JOIN ('.$jointype.') was provided.');
             }
