@@ -331,7 +331,7 @@ class Controller
         }
     }
     
-    #Returns array of counts  for each unique value in column.
+    #Returns array of counts  for each unique value in column. Does not use bindings, so be careful not to process user input directly.
     #$table - table name to count in
     #$columnname - column to count
     #$where - optional WHERE condition. Full notations (`table`.`column`) are advised.
@@ -339,7 +339,7 @@ class Controller
     #$jointype - type of JOIN to use
     #$joinon - column to JOIN on (defaults to the same column name we are counting).
     #$joinreturn - mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
-    #$order - order the output
+    #$order - DESC or ASC order the output by `count`
     #$limit - optional limit of the output
     #$extragroup - optional list (array) of column names to GROUP by BEFORE the original $columnname or $joinreturn. Full notations (`table`.`column`) are advised.
     #$altjoin - apply JOIN logic AFTER the original COUNT. In some cases this may provide signifficant performance improvement, since we will be JOINing only a the result, not the whole table. This approach is disabled by default, because depdending on what is sent in $joinreturn and $extragroup it may easily fail or provide unexpected results.
@@ -356,7 +356,7 @@ class Controller
         }
         #Building query
         if ($jointable === '') {
-            $query = 'SELECT `'.$table.'`.`'.$columnname.'` AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+            $query = 'SELECT '.(empty($extracolumns) ? '' : implode(', ', $extracolumns).', ').'`'.$table.'`.`'.$columnname.'` AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
         } else {
             #Check for proper JOIN type
             if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $jointype) === 1) {
@@ -369,15 +369,89 @@ class Controller
                     $joinon = $columnname;
                 }
                 if ($altjoin === false) {
-                    $query = 'SELECT '.$joinreturn.' AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` INNER JOIN `'.$jointable.'` ON `'.$table.'`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+                    $query = 'SELECT '.$joinreturn.' AS `value`, count(`'.$table.'`.`'.$columnname.'`) AS `count` FROM `'.$table.'` INNER JOIN `'.$jointable.'` ON `'.$table.'`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
                 } else {
-                    $query = 'SELECT '.$joinreturn.' AS `value`, `count` FROM (SELECT '.(empty($extracolumns) ? '' : implode(', ', $extracolumns).', ').'`'.$table.'`.`'.$columnname.'`, count(`'.$table.'`.`'.$columnname.'`) AS `count` from `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`'.$table.'`.`'.$columnname.'` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit).') `tempresult` INNER JOIN `'.$jointable.'` ON `tempresult`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` ORDER BY `count` '.$order;
+                    $query = 'SELECT '.$joinreturn.' AS `value`, `count` FROM (SELECT '.(empty($extracolumns) ? '' : implode(', ', $extracolumns).', ').'`'.$table.'`.`'.$columnname.'`, count(`'.$table.'`.`'.$columnname.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'`'.$table.'`.`'.$columnname.'` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit).') `tempresult` INNER JOIN `'.$jointable.'` ON `tempresult`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` ORDER BY `count` '.$order;
                 }
             } else {
                 throw new \UnexpectedValueException('Unsupported type of JOIN ('.$jointype.') was provided.');
             }
         }
         if ($this->query($query) && is_array($this->getResult())) {
+            return $this->getResult();
+        } else {
+            return [];
+        }
+    }
+    
+    #Similar to countUnique, but utilizes SUM based on comparison of the column's values against the list provided. Each `value` will be present in a separate column. In some cases you results will look like transposed countUnique, but in other cases this can provide some more flexibility in terms of how to structure them.
+    #$table - table name to count in
+    #$columnname - column to count
+    #$values - list of values to check for. Defaults to 0 and 1 (boolean)
+    #$names - list of names for resulting columns. Defaults to `false` and `true`
+    #$where - optional WHERE condition. Full notations (`table`.`column`) are advised.
+    #$jointable - optional table to JOIN with
+    #$jointype - type of JOIN to use
+    #$joinon - column to JOIN on (defaults to the same column name we are counting).
+    #$joinreturn - mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
+    #$order - DESC or ASC order the output by 1 (that is 1st column in SELECT)
+    #$limit - optional limit of the output
+    #$extragroup - optional list (array) of column names to GROUP by BEFORE the original $columnname or $joinreturn. Full notations (`table`.`column`) are advised.
+    public function sumUnique(string $table, string $columnname, array $values = [], array $names = [], string $where = '', string $jointable = '', string $jointype = 'INNER', string $joinon = '', string $joinreturn = '', string $order = 'DESC', int $limit = 0, array $extragroup = [], array $extracolumns = []): array
+    {
+        #Default $values
+        if (empty($values) === true) {
+            $values = [0, 1];
+        } else {
+            #Ensure we use regular array, not associative one
+            $values = array_values($values);
+        }
+        #Default $names
+        if (empty($names) === true) {
+            $names = ['false', 'true'];
+        } else {
+            #Ensure we use regular array, not associative one
+            $names = array_values($names);
+        }
+        #Check that both $values and $names have identical length
+        if (count($values) !== count($names)) {
+            throw new \UnexpectedValueException('Array of names provided to sumUnique function has different number of elements than array of values ('.count($names).' instead of '.count($values).')');
+        }
+        #Prevent negative LIMIT
+        if ($limit < 0) {
+            $limit = 0;
+        }
+        #Sanitize ORDER
+        if (preg_match('/(DESC|ASC)/mi', $order) !== 1) {
+            $order = 'DESC';
+        }
+        #Build conditional fields
+        $sumfields = [];
+        $bindings = [];
+        foreach ($values as $key=>$value) {
+            $sumfields[] = 'SUM(IF(`'.$table.'`.`'.$columnname.'` = :'.$key.', 1, 0)) AS `'.$names[$key].'`';
+            $bindings[':'.$key] = strval($value);
+        }
+        #Building query
+        if ($jointable === '') {
+            $query = 'SELECT '.implode(', ', $sumfields).' FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'1 ORDER BY 1 '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+        } else {
+            #Check for proper JOIN type
+            if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $jointype) === 1) {
+                #Check if we have a setup to return after JOIN
+                if (empty($joinreturn)) {
+                    throw new \UnexpectedValueException('No value to reutrn after JOIN was provided.');
+                }
+                #Check of we have a column to join on. If not - set its name to the name of original column
+                if (empty($joinon)) {
+                    $joinon = $columnname;
+                }
+                $query = 'SELECT '.$joinreturn.', '.implode(', ', $sumfields).' FROM `'.$table.'` INNER JOIN `'.$jointable.'` ON `'.$table.'`.`'.$columnname.'`=`'.$jointable.'`.`'.$joinon.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extragroup) ? '' : implode(', ', $extragroup).', ').'1 ORDER BY 1 '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+            } else {
+                throw new \UnexpectedValueException('Unsupported type of JOIN ('.$jointype.') was provided.');
+            }
+        }
+        if ($this->query($query, $bindings) && is_array($this->getResult())) {
             return $this->getResult();
         } else {
             return [];
