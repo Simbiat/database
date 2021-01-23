@@ -84,6 +84,10 @@ class Controller
                         if (preg_match('/(^('.implode('|', self::selects).'))/i', $actualquery) === 1 && preg_match('/^SELECT.*FOR UPDATE$/mi', $actualquery) !== 1) {
                             trigger_error('A selector command ('.implode(', ', self::selects).') detected in bulk of queries. Output wll not be fetched and may result in errors in further queries. Consider revising: '.$actualquery);
                         }
+                        #Check if it's a comment and skip it
+                        if (preg_match('/^\s*(--|#|\/\*).*$/', $actualquery) === 1) {
+                            continue;
+                        }
                         $sql = $this->dbh->prepare($actualquery);
                         #Preparing bindings
                         if (is_array($query)) {
@@ -456,6 +460,13 @@ class Controller
         } else {
             return [];
         }
+    }
+    
+    #Helper function to allow splitting a string into array of queries
+    #Regexp taken from https://stackoverflow.com/questions/24423260/split-sql-statements-in-php-on-semicolons-but-not-inside-quotes
+    public function stringToQueries(string $string): array
+    {
+        return preg_split('~\([^)]*\)(*SKIP)(*F)|(?<=;)(?![ ]*$)~', $string);
     }
     
     #####################
