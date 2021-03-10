@@ -15,14 +15,14 @@ class Controller
     private int $maxruntime = 3600; #in seconds
     private int $maxtries = 5;
     private int $sleep = 5; #in seconds
-    private $result = NULL;
+    private mixed $result = NULL;
     
     public function __construct()
     {
         $this->dbh = (new \SimbiatDB\Pool)->openConnection();
     }
     
-    public function query($queries, array $bindings = [], $fetch_style = \PDO::FETCH_ASSOC, $fetch_argument = NULL, array $ctor_args = []): bool
+    public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, mixed $fetch_argument = NULL, array $ctor_args = []): bool
     {
         $try = 0;
         do {
@@ -60,9 +60,6 @@ class Controller
                     }
                     return true;
                 } else {
-                    if (!is_array($queries)) {
-                        throw new \UnexpectedValueException('Queries sent are neither string nor array.');
-                    }
                     $this->dbh->beginTransaction();
                     foreach ($queries as $sequence=>$query) {
                         if (is_string($query)) {
@@ -211,7 +208,7 @@ class Controller
         return $sql;
     }
     
-    private function time($time = 0, string $format = 'Y-m-d H:i:s.u'): string
+    private function time(string|float|int $time = 0, string $format = 'Y-m-d H:i:s.u'): string
     {
         return (new \SandClock\Api)->setFormat($format)->format($time);
     }
@@ -220,9 +217,10 @@ class Controller
     #Useful semantic wrappers#
     ##########################
     #Return full results as multidimensional array (associative by default).
-    public function selectAll(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): array
+    public function selectAll(string $query, array $bindings = [], int $fetchmode = \PDO::FETCH_ASSOC): array
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, $fetchmode) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -234,9 +232,10 @@ class Controller
     }
     
     #Returns only 1 row from SELECT (essentially LIMIT 1).
-    public function selectRow(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): array
+    public function selectRow(string $query, array $bindings = [], int $fetchmode = \PDO::FETCH_ASSOC): array
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, $fetchmode, 'row') && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -251,6 +250,7 @@ class Controller
     public function selectColumn(string $query, array $bindings = [], int $column = 0): array
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -265,6 +265,7 @@ class Controller
     public function selectValue(string $query, array $bindings = [], int $column = 0)
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
                 return ($this->getResult()[$column] ?? NULL);
             } else {
@@ -279,6 +280,7 @@ class Controller
     public function selectPair(string $query, array $bindings = [], int $column = 0): array
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, \PDO::FETCH_KEY_PAIR, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -293,6 +295,7 @@ class Controller
     public function selectUnique(string $query, array $bindings = [], int $column = 0): array
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
                 return $this->getResult();
             } else {
@@ -304,9 +307,10 @@ class Controller
     }
     
     #Returns count value from SELECT.
-    public function count(string $query, array $bindings = array()): int
+    public function count(string $query, array $bindings = []): int
     {
         if (preg_match('/^\s*SELECT COUNT/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, 0) && is_array($this->getResult())) {
                 if (empty($this->getResult())) {
                     return 0;
@@ -322,9 +326,10 @@ class Controller
     }
     
     #Returns boolean value indicating, if anything matching SELECT exists.
-    public function check(string $query, array $bindings = [], $fetchmode = \PDO::FETCH_ASSOC): bool
+    public function check(string $query, array $bindings = [], int $fetchmode = \PDO::FETCH_ASSOC): bool
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            self::$queries++;
             if ($this->query($query, $bindings, $fetchmode) && is_array($this->getResult()) && !empty($this->getResult())) {
                 return true;
             } else {
@@ -381,6 +386,7 @@ class Controller
                 throw new \UnexpectedValueException('Unsupported type of JOIN ('.$jointype.') was provided.');
             }
         }
+        self::$queries++;
         if ($this->query($query) && is_array($this->getResult())) {
             return $this->getResult();
         } else {
@@ -455,6 +461,7 @@ class Controller
                 throw new \UnexpectedValueException('Unsupported type of JOIN ('.$jointype.') was provided.');
             }
         }
+        self::$queries++;
         if ($this->query($query, $bindings) && is_array($this->getResult())) {
             return $this->getResult();
         } else {

@@ -123,7 +123,7 @@ final class Config
         }
     }
     
-    public function setOption(int $option, $value): self
+    public function setOption(int $option, mixed $value): self
     {
         if (
             in_array($option, [\PDO::ATTR_ERRMODE,\PDO::ATTR_EMULATE_PREPARES])
