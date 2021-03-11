@@ -9,7 +9,7 @@ class Controller
         'SELECT', 'SHOW', 'HANDLER', 'ANALYZE', 'CHECK', 'DESCRIBE', 'DESC', 'EXPLAIN', 'HELP'
     ];
     #Static for convinience, in case object gets destroyed, but you still want to get total number
-    public static $queries = 0;
+    public static int $queries = 0;
     private object $dbh;
     private bool $debug = false;
     private int $maxruntime = 3600; #in seconds
