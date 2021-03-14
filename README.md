@@ -7,7 +7,7 @@ This is a set of 3 classes for convenience of work with databases, a wrapper and
   - Validation of some host parameters (like port number)
   - Convenient DSN generation using `getDSN()` function
   - Password protection that makes it a bit harder to spoof the password from outside functions, besides the appropriate Pool class
-- Pool: A static proxy class which can pool database connection setups (\SimbiatDB\Config objects) and use the one currently active, when you are requesting a PDO connection. With ability to change active connection, if required.
+- Pool: A static proxy class which can pool database connection setups (\Simbiat\Database\Config objects) and use the one currently active, when you are requesting a PDO connection. With ability to change active connection, if required.
 - Controller: a wrapper with some potentially useful features:
   - You can send both string (single query) and array (set of queries) and both will be processed. In case of array, it will automatically start a transaction and process each query separately. In case array will have any SELECT-like queries you will be notified, because their output may not get processed properly.
   - Attempts to retry in case of deadlock. You can set number of retries and time to sleep before each try using appropriate setters.
@@ -25,7 +25,7 @@ This is a set of 3 classes for convenience of work with databases, a wrapper and
 
 First you need to create a \Config object and set it's parameters like this:
 ```php
-$config = (new \SimbiatDB\Config)->setUser('user')->setPassword('password')->setDB('database');
+$config = (new \Simbiat\Database\Config)->setUser('user')->setPassword('password')->setDB('database');
 ```
 The above line is the minimum you will require. Additionally you can set driver options like this:
 ```php
@@ -33,22 +33,22 @@ $config->setOption(\PDO::MYSQL_ATTR_FOUND_ROWS, true)->setOption(\PDO::MYSQL_ATT
 ```
 After you set it up to your liking (can be done in one line), you need to add it to pool:
 ```php
-(new \SimbiatDB\Pool)->openConnection($config, 'example');
+(new \Simbiat\Database\Pool)->openConnection($config, 'example');
 ```
 Passing ID is not required but will improve your life if you will need to juggle multiple connections.
 
 If connection is established successfully you then can get \PDO object for it by not sending any parameters to the pool:
 ```php
-(new \SimbiatDB\Pool)->openConnection();
+(new \Simbiat\Database\Pool)->openConnection();
 ```
 Or sending a previous `$config` or connection ID if you need a specific one. \Controller class uses variant without parameters for flexibility, but can be overridden, if deemed necessary.
 
 To utilize \Controller you need to establish as shown above and then call either it `query()` function or any of the wrappers. For example, this line will count rows in a table and return only the number of those rows, that is an integer:
 ```php
-(new \SimbiatDB\Controller)->count('SELECT COUNT(*) FROM `table`');
+(new \Simbiat\Database\Controller)->count('SELECT COUNT(*) FROM `table`');
 ```
 And this one will return a boolean, advising if something exists in a table:
 ```php
-(new \SimbiatDB\Controller)->check('SELECT * FROM `table` WHERE `time`=:value', [':value'=>['', 'time']]);
+(new \Simbiat\Database\Controller)->check('SELECT * FROM `table` WHERE `time`=:value', [':value'=>['', 'time']]);
 ```
 The above example also shows one of possible ways to set bindings. Regular \PDO allows binding values like `hook, value, type`, but \Controller expects an array for `value` if you want to send a non-string one or a special value, like the above mentioned `time`. Since We are sending an empty value for `time` \Controller will take current microtime and convert and bind it in `Y-m-d H:i:s.u` format.

@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-namespace SimbiatDB;
+namespace Simbiat\Database;
 
 class Controller
 {    
@@ -19,7 +19,7 @@ class Controller
     
     public function __construct()
     {
-        $this->dbh = (new \SimbiatDB\Pool)->openConnection();
+        $this->dbh = (new \Simbiat\Database\Pool)->openConnection();
     }
     
     public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, mixed $fetch_argument = NULL, array $ctor_args = []): bool
@@ -210,7 +210,7 @@ class Controller
     
     private function time(string|float|int $time = 0, string $format = 'Y-m-d H:i:s.u'): string
     {
-        return (new \SandClock\Api)->setFormat($format)->format($time);
+        return (new \Simbiat\SandClock)->setFormat($format)->format($time);
     }
     
     ##########################

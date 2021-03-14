@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-namespace SimbiatDB;
+namespace Simbiat\Database;
 
 final class Config
 {
@@ -50,7 +50,7 @@ final class Config
         } else {
             $caller = $caller[1];
         }
-        if ($caller['function'] !== 'openConnection' || $caller['class'] !== 'SimbiatDB\\Pool') {
+        if ($caller['function'] !== 'openConnection' || $caller['class'] !== 'Simbiat\\Database\\Pool') {
             throw new \RuntimeException('Call from non-allowed function or object-type detected. Access denied.');
         }
         return (empty($this->password) ? '' : $this->password);
