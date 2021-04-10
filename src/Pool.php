@@ -5,7 +5,7 @@ namespace Simbiat\Database;
 final class Pool
 {   
     private static array $pool = [];
-    private static ?\PDO $activeconnection = NULL;
+    public static ?\PDO $activeconnection = NULL;
     
     public static function openConnection(\Simbiat\Database\Config $config = NULL, string $id = NULL): \PDO
     {
