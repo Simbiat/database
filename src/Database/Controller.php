@@ -1,0 +1,553 @@
+<?php
+declare(strict_types=1);
+namespace Simbiat\Database;
+
+use Simbiat\SandClock;
+
+class Controller
+{
+    #List of functions, that may return rows
+    const selects = [
+        'SELECT', 'SHOW', 'HANDLER', 'ANALYZE', 'CHECK', 'DESCRIBE', 'DESC', 'EXPLAIN', 'HELP'
+    ];
+    #Static for convenience, in case object gets destroyed, but you still want to get total number
+    public static int $queries = 0;
+    private ?\PDO $dbh;
+    private bool $debug = false;
+    private int $maxRunTime = 3600; #in seconds
+    private int $maxTries = 5;
+    private int $sleep = 5; #in seconds
+    private mixed $result = NULL;
+
+    public function __construct()
+    {
+        $this->dbh = (new Pool)->openConnection();
+    }
+
+    /**
+     * @throws \Exception
+     */
+    public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, mixed $fetch_argument = NULL, array $ctor_args = []): bool
+    {
+        $try = 0;
+        do {
+            try {
+                $try++;
+                if (is_string($queries)) {
+                    $sql = $this->dbh->prepare($queries);
+                    #Preparing bindings
+                    $sql = $this->binding($sql, $bindings);
+                    set_time_limit($this->maxRunTime);
+                    if ($this->debug) {
+                        echo $queries.'<br>';
+                        ob_flush();
+                        flush();
+                    }
+                    $sql->execute();
+                    self::$queries++;
+                    if ($this->debug) {
+                        $sql->debugDumpParams();
+                        ob_flush();
+                        flush();
+                    }
+                    if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $queries) === 1) {
+                        if ($fetch_argument === 'row') {
+                            $this->result = $sql->fetch($fetch_style);
+                        } elseif ($fetch_style === \PDO::FETCH_COLUMN || $fetch_style === \PDO::FETCH_FUNC) {
+                            $this->result = $sql->fetchAll($fetch_style, $fetch_argument);
+                        } elseif ($fetch_style === \PDO::FETCH_CLASS) {
+                            $this->result = $sql->fetchAll($fetch_style, $fetch_argument, $ctor_args);
+                        } else {
+                            $this->result = $sql->fetchAll($fetch_style);
+                        }
+                    } else {
+                        $this->result = $sql->rowCount();
+                    }
+                } else {
+                    $this->dbh->beginTransaction();
+                    foreach ($queries as $sequence=>$query) {
+                        if (is_string($query)) {
+                            $actualQuery = $query;
+                        } else {
+                            if (is_array($query) && is_string($query[0])) {
+                                $actualQuery = $query[0];
+                            } else {
+                                throw new \UnexpectedValueException('Query #'.$sequence.' in bulk is not a string.');
+                            }
+                        }
+                        #Check if it's a command which may return rows
+                        if (preg_match('/(^('.implode('|', self::selects).'))/i', $actualQuery) === 1 && preg_match('/^SELECT.*FOR UPDATE$/mi', $actualQuery) !== 1) {
+                            trigger_error('A selector command ('.implode(', ', self::selects).') detected in bulk of queries. Output wll not be fetched and may result in errors in further queries. Consider revising: '.$actualQuery);
+                        }
+                        #Check if it's a comment and skip it
+                        if (preg_match('/^\s*(--|#|\/\*).*$/', $actualQuery) === 1) {
+                            continue;
+                        }
+                        $sql = $this->dbh->prepare($actualQuery);
+                        #Preparing bindings
+                        if (is_array($query)) {
+                            if (!empty($query[1])) {
+                                if (is_array($query[1])) {
+                                    $sql = $this->binding($sql, array_merge($bindings, $query[1]));
+                                } else {
+                                    throw new \UnexpectedValueException('Bindings provided for query #'.$sequence.' are not an array.');
+                                }
+                            }
+                        }
+                        #Increasing time limit for potentially long operations (like optimize)
+                        set_time_limit($this->maxRunTime);
+                        if ($this->debug) {
+                            echo $actualQuery.'<br>';
+                            ob_flush();
+                            flush();
+                        }
+                        $sql->execute();
+                        self::$queries++;
+                        if ($this->debug) {
+                            $sql->debugDumpParams();
+                            ob_flush();
+                            flush();
+                        }
+                    }
+                    $this->dbh->commit();
+                }
+                return true;
+            } catch (\Exception $e) {
+                $error = $e->getMessage().$e->getTraceAsString();
+                if (isset($sql) && $this->debug) {
+                    $sql->debugDumpParams();
+                    echo $error;
+                    ob_flush();
+                    flush();
+                }
+                #Check if deadlock
+                if (isset($sql) && ($sql->errorCode() == '40001' || preg_match('/.*(deadlock|try restarting transaction).*/mis', $error) === 1 )) {
+                    $deadlock = true;
+                    if ($try == $this->maxTries) {
+                        error_log($error);
+                    }
+                } else {
+                    $deadlock = false;
+                    error_log($error);
+                }
+                if ($this->dbh->inTransaction()) {
+                    $this->dbh->rollBack();
+                    if (!$deadlock) {
+                        throw $e;
+                    }
+                }
+                #If deadlock - sleep and then retry
+                if ($deadlock) {
+                    sleep($this->sleep);
+                    continue;
+                } else {
+                    throw $e;
+                }
+            }
+        } while ($try <= $this->maxTries);
+        throw new \Exception('Deadlock encountered for set maximum of '.$this->maxTries.' tries.');
+    }
+
+    #Function mainly for convenience and some types enforcing, which sometimes 'fail' in PDO itself
+    private function binding(\PDOStatement $sql, array $bindings = []): \PDOStatement
+    {
+        foreach ($bindings as $binding=>$value) {
+            if (!is_array($value)) {
+                $sql->bindValue($binding, $value);
+            } else {
+                switch(strtolower($value[1])) {
+                    case 'date':
+                        $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
+                        break;
+                    case 'time':
+                        $sql->bindValue($binding, $this->time($value[0]));
+                        break;
+                    case 'bool':
+                    case 'boolean':
+                        $sql->bindValue($binding, boolval($value[0]), \PDO::PARAM_BOOL);
+                        break;
+                    case 'null':
+                        $sql->bindValue($binding, NULL, \PDO::PARAM_NULL);
+                        break;
+                    case 'int':
+                    case 'integer':
+                    case 'number':
+                    case 'limit':
+                    case 'offset':
+                        $sql->bindValue($binding, intval($value[0]), \PDO::PARAM_INT);
+                        break;
+                    case 'str':
+                    case 'string':
+                    case 'text':
+                    case 'float':
+                    case 'varchar':
+                    case 'varchar2':
+                        $sql->bindValue($binding, strval($value[0]));
+                        break;
+                    case 'lob':
+                    case 'large':
+                    case 'object':
+                    case 'blob':
+                        $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
+                        break;
+                    case 'like':
+                        $sql->bindValue($binding, '%'.$value[0].'%');
+                        break;
+                    default:
+                        if (is_int($value[1])) {
+                            $sql->bindValue($binding, $value[0], $value[1]);
+                        } else {
+                            $sql->bindValue($binding, strval($value[0]));
+                        }
+                }
+            }
+        }
+        return $sql;
+    }
+
+    private function time(string|float|int $time = 0, string $format = 'Y-m-d H:i:s.u'): string
+    {
+        return (new SandClock)->setFormat($format)->format($time);
+    }
+
+    ##########################
+    #Useful semantic wrappers#
+    ##########################
+    #Return full results as multidimensional array (associative by default).
+    /**
+     * @throws \Exception
+     */
+    public function selectAll(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
+    {
+        if ($this->isSelect($query) === true) {
+            self::$queries++;
+            if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult())) {
+                return $this->getResult();
+            }
+        }
+        return [];
+    }
+
+    #Returns only 1 row from SELECT (essentially LIMIT 1).
+
+    /**
+     * @throws \Exception
+     */
+    public function selectRow(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
+    {
+        if ($this->isSelect($query) === true) {
+            self::$queries++;
+            if ($this->query($query, $bindings, $fetchMode, 'row') && is_array($this->getResult())) {
+                return $this->getResult();
+            }
+        }
+        return [];
+    }
+
+    #Returns column (first by default) even if original SELECT requests for more. Change 3rd parameter accordingly to use another column as key (starting from 0).
+
+    /**
+     * @throws \Exception
+     */
+    public function selectColumn(string $query, array $bindings = [], int $column = 0): array
+    {
+        if ($this->isSelect($query) === true) {
+            self::$queries++;
+            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
+                return $this->getResult();
+            }
+        }
+        return [];
+    }
+
+    #Returns a value directly, instead of array containing that value. Useful for getting specific settings from DB. No return typing, since it may vary, so be careful with that.
+
+    /**
+     * @throws \Exception
+     */
+    public function selectValue(string $query, array $bindings = [], int $column = 0)
+    {
+        if ($this->isSelect($query) === true) {
+            self::$queries++;
+            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
+                return ($this->getResult()[$column] ?? NULL);
+            }
+        }
+        return NULL;
+    }
+
+    #Returns key->value pair(s) based on 2 columns. First column (by default) is used as key. Change 3rd parameter accordingly to use another column as key (starting from 0).
+
+    /**
+     * @throws \Exception
+     */
+    public function selectPair(string $query, array $bindings = [], int $column = 0): array
+    {
+        if ($this->isSelect($query) === true) {
+            self::$queries++;
+            if ($this->query($query, $bindings, \PDO::FETCH_KEY_PAIR, $column) && is_array($this->getResult())) {
+                return $this->getResult();
+            }
+        }
+        return [];
+    }
+
+    #Returns unique values from a column (first by default). Change 3rd parameter accordingly to use another column as key (starting from 0).
+
+    /**
+     * @throws \Exception
+     */
+    public function selectUnique(string $query, array $bindings = [], int $column = 0): array
+    {
+        if ($this->isSelect($query) === true) {
+            self::$queries++;
+            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
+                return $this->getResult();
+            }
+        }
+        return [];
+    }
+
+    #Returns count value from SELECT.
+
+    /**
+     * @throws \Exception
+     */
+    public function count(string $query, array $bindings = []): int
+    {
+        if (preg_match('/^\s*SELECT COUNT/mi', $query) === 1) {
+            self::$queries++;
+            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, 0) && is_array($this->getResult())) {
+                if (empty($this->getResult())) {
+                    return 0;
+                } else {
+                    return intval($this->getResult()[0]);
+                }
+            } else {
+                return 0;
+            }
+        } else {
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).' COUNT.');
+        }
+    }
+
+    #Returns boolean value indicating, if anything matching SELECT exists.
+
+    /**
+     * @throws \Exception
+     */
+    public function check(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): bool
+    {
+        if ($this->isSelect($query) === true) {
+            self::$queries++;
+            if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult()) && !empty($this->getResult())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    #Returns array of counts  for each unique value in column. Does not use bindings, so be careful not to process user input directly.
+    #$table - table name to count in
+    #$columnName - column to count
+    #$where - optional WHERE condition. Full notations (`table`.`column`) are advised.
+    #$joinTable - optional table to JOIN with
+    #$joinType - type of JOIN to use
+    #$joinOn - column to JOIN on (defaults to the same column name we are counting).
+    #$joinReturn - mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
+    #$order - DESC or ASC order the output by `count`
+    #$limit - optional limit of the output
+    #$extraGroup - optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
+    #$altJoin - apply JOIN logic AFTER the original COUNT. In some cases this may provide significant performance improvement, since we will be JOINing only a the result, not the whole table. This approach is disabled by default, because depending on what is sent in $joinReturn and $extraGroup it may easily fail or provide unexpected results.
+    #$extraColumns - optional list of additional columns to return on initial SELECT. May sometimes help with errors in case of $altJoin. If this is used you can use `tempresult` in $joinReturn.
+    /**
+     * @throws \Exception
+     */
+    public function countUnique(string $table, string $columnName, string $where = '', string $joinTable = '', string $joinType = 'INNER', string $joinOn = '', string $joinReturn = '', string $order = 'DESC', int $limit = 0, array $extraGroup = [], bool $altJoin = false, array $extraColumns = []): array
+    {
+        #Prevent negative LIMIT
+        if ($limit < 0) {
+            $limit = 0;
+        }
+        #Sanitize ORDER
+        if (preg_match('/(DESC|ASC)/mi', $order) !== 1) {
+            $order = 'DESC';
+        }
+        #Building query
+        if ($joinTable === '') {
+            $query = 'SELECT '.(empty($extraColumns) ? '' : implode(', ', $extraColumns).', ').'`'.$table.'`.`'.$columnName.'` AS `value`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+        } else {
+            #Check for proper JOIN type
+            if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $joinType) === 1) {
+                #Check if we have a setup to return after JOIN
+                if (empty($joinReturn)) {
+                    throw new \UnexpectedValueException('No value to return after JOIN was provided.');
+                }
+                #Check of we have a column to join on. If not - set its name to the name of original column
+                if (empty($joinOn)) {
+                    $joinOn = $columnName;
+                }
+                if ($altJoin === false) {
+                    $query = 'SELECT '.$joinReturn.' AS `value`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+                } else {
+                    $query = 'SELECT '.$joinReturn.' AS `value`, `count` FROM (SELECT '.(empty($extraColumns) ? '' : implode(', ', $extraColumns).', ').'`'.$table.'`.`'.$columnName.'`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`'.$table.'`.`'.$columnName.'` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit).') `tempresult` INNER JOIN `'.$joinTable.'` ON `tempresult`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` ORDER BY `count` '.$order;
+                }
+            } else {
+                throw new \UnexpectedValueException('Unsupported type of JOIN ('.$joinType.') was provided.');
+            }
+        }
+        self::$queries++;
+        if ($this->query($query) && is_array($this->getResult())) {
+            return $this->getResult();
+        } else {
+            return [];
+        }
+    }
+
+    #Similar to countUnique, but utilizes SUM based on comparison of the column's values against the list provided. Each `value` will be present in a separate column. In some cases you results will look like transposed countUnique, but in other cases this can provide some more flexibility in terms of how to structure them.
+    #$table - table name to count in
+    #$columnName - column to count
+    #$values - list of values to check for. Defaults to 0 and 1 (boolean)
+    #$names - list of names for resulting columns. Defaults to `false` and `true`
+    #$where - optional WHERE condition. Full notations (`table`.`column`) are advised.
+    #$joinTable - optional table to JOIN with
+    #$joinType - type of JOIN to use
+    #$joinOn - column to JOIN on (defaults to the same column name we are counting).
+    #$joinReturn - mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
+    #$order - DESC or ASC order the output by 1 (that is 1st column in SELECT)
+    #$limit - optional limit of the output
+    #$extraGroup - optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
+    /**
+     * @throws \Exception
+     */
+    public function sumUnique(string $table, string $columnName, array $values = [], array $names = [], string $where = '', string $joinTable = '', string $joinType = 'INNER', string $joinOn = '', string $joinReturn = '', string $order = 'DESC', int $limit = 0, array $extraGroup = []): array
+    {
+        #Default $values
+        if (empty($values) === true) {
+            $values = [0, 1];
+        } else {
+            #Ensure we use regular array, not associative one
+            $values = array_values($values);
+        }
+        #Default $names
+        if (empty($names) === true) {
+            $names = ['false', 'true'];
+        } else {
+            #Ensure we use regular array, not associative one
+            $names = array_values($names);
+        }
+        #Check that both $values and $names have identical length
+        if (count($values) !== count($names)) {
+            throw new \UnexpectedValueException('Array of names provided to sumUnique function has different number of elements than array of values ('.count($names).' instead of '.count($values).')');
+        }
+        #Prevent negative LIMIT
+        if ($limit < 0) {
+            $limit = 0;
+        }
+        #Sanitize ORDER
+        if (preg_match('/(DESC|ASC)/mi', $order) !== 1) {
+            $order = 'DESC';
+        }
+        #Build conditional fields
+        $sumFields = [];
+        $bindings = [];
+        foreach ($values as $key=>$value) {
+            $sumFields[] = 'SUM(IF(`'.$table.'`.`'.$columnName.'` = :'.$key.', 1, 0)) AS `'.$names[$key].'`';
+            $bindings[':'.$key] = strval($value);
+        }
+        #Building query
+        if ($joinTable === '') {
+            $query = 'SELECT '.implode(', ', $sumFields).' FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'1 ORDER BY 1 '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+        } else {
+            #Check for proper JOIN type
+            if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $joinType) === 1) {
+                #Check if we have a setup to return after JOIN
+                if (empty($joinReturn)) {
+                    throw new \UnexpectedValueException('No value to return after JOIN was provided.');
+                }
+                #Check of we have a column to join on. If not - set its name to the name of original column
+                if (empty($joinOn)) {
+                    $joinOn = $columnName;
+                }
+                $query = 'SELECT '.$joinReturn.', '.implode(', ', $sumFields).' FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'1 ORDER BY 1 '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+            } else {
+                throw new \UnexpectedValueException('Unsupported type of JOIN ('.$joinType.') was provided.');
+            }
+        }
+        self::$queries++;
+        if ($this->query($query, $bindings) && is_array($this->getResult())) {
+            return $this->getResult();
+        } else {
+            return [];
+        }
+    }
+
+    #Helper function to allow splitting a string into array of queries
+    #Regexp taken from https://stackoverflow.com/questions/24423260/split-sql-statements-in-php-on-semicolons-but-not-inside-quotes
+    public function stringToQueries(string $string): array
+    {
+        return preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?![ ]*$)~', $string);
+    }
+
+    #Helper function to check if query is a select(able) one
+    private function isSelect(string $query): bool
+    {
+        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+            return true;
+        } else {
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
+        }
+    }
+
+    #####################
+    #Setters and getters#
+    #####################
+    public function getMaxTime(): int
+    {
+        return $this->maxRunTime;
+    }
+
+    public function setMaxTime(int $seconds): self
+    {
+        $this->maxRunTime = $seconds;
+        return $this;
+    }
+
+    public function getDebug(): bool
+    {
+        return $this->debug;
+    }
+
+    public function setDebug(bool $debug): self
+    {
+        $this->debug = $debug;
+        return $this;
+    }
+
+    public function getTries(): int
+    {
+        return $this->maxTries;
+    }
+
+    public function setTries(int $tries): self
+    {
+        $this->maxTries = abs($tries);
+        return $this;
+    }
+
+    public function getSleep(): int
+    {
+        return $this->sleep;
+    }
+
+    public function setSleep(int $sleep): self
+    {
+        $this->sleep = abs($sleep);
+        return $this;
+    }
+
+    public function getResult()
+    {
+        return $this->result;
+    }
+}

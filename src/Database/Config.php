@@ -19,7 +19,7 @@ final class Config
         \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         \PDO::ATTR_EMULATE_PREPARES => true,
     ];
-    
+
     public function setUser(string $user): self
     {
         if (empty($user)) {
@@ -29,18 +29,18 @@ final class Config
         }
         return $this;
     }
-    
+
     public function getUser(): string
     {
         return (empty($this->user) ? '' : $this->user);
     }
-    
+
     public function setPassword(string $password = ''): self
     {
         $this->password=$password;
         return $this;
     }
-    
+
     public function getPassword(): string
     {
         #Restricting direct access to password for additional security
@@ -55,7 +55,7 @@ final class Config
         }
         return (empty($this->password) ? '' : $this->password);
     }
-    
+
     public function setHost(string $host = 'localhost', int $port = NULL, string $socket = NULL): self
     {
         $this->host=(empty($host) ? 'localhost' : $host);
@@ -63,7 +63,7 @@ final class Config
         $this->socket=$socket;
         return $this;
     }
-    
+
     public function getHost(): string
     {
         if (empty($this->socket)) {
@@ -72,7 +72,7 @@ final class Config
             return 'unix_socket='.$this->socket.';';
         }
     }
-    
+
     public function setDriver(string $driver = 'mysql'): self
     {
         if (in_array($driver, \PDO::getAvailableDrivers())) {
@@ -82,12 +82,12 @@ final class Config
         }
         return $this;
     }
-    
+
     public function getDriver(): string
     {
         return (empty($this->driver) ? '' : $this->driver);
     }
-    
+
     public function setDB(string $dbname): self
     {
         if (empty($dbname)) {
@@ -97,23 +97,23 @@ final class Config
         }
         return $this;
     }
-    
+
     public function getDB(): string
     {
         return (empty($this->dbname) ? '' : 'dbname='.$this->dbname.';');
     }
-    
+
     public function setCharset(string $charset): self
     {
         $this->charset=(empty($charset) ? 'utf8mb4' : $charset);
         return $this;
     }
-    
+
     public function getCharset(): string
     {
         return (empty($this->charset) ? '' : 'charset='.$this->charset.';');
     }
-    
+
     public function getDSN(): string
     {
         if (empty($this->getDB())) {
@@ -122,7 +122,7 @@ final class Config
             return $this->getDriver().':'.$this->getHost().$this->getDB().$this->getCharset();
         }
     }
-    
+
     public function setOption(int $option, mixed $value): self
     {
         if (
@@ -138,7 +138,7 @@ final class Config
         }
         return $this;
     }
-    
+
     public function getOptions(): array
     {
         if ($this->getDriver() === 'mysql') {
@@ -150,11 +150,10 @@ final class Config
         }
         return $this->PDOptions;
     }
-    
+
     #prevent properties from showing in var_dump and print_r for additional security
     public function __debugInfo(): array
     {
         return [];
     }
 }
-?>

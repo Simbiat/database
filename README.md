@@ -13,21 +13,21 @@ This is a set of 3 classes for convenience of work with databases, a wrapper and
   - Attempts to retry in case of deadlock. You can set number of retries and time to sleep before each try using appropriate setters.
   - Binding sugar:
     - Instead of `\PDO::PARAM_*` or obscure integers you can send appropriate types as strings, like `'boolean'`
-    - Enforced type casting: it's known, that sometimes PDO driver does not cast or casts weirdly. Some of the cases enforce regular casting in attempt to work around this
+    - Enforced type casting: it's known, that sometimes PDO driver does not cast or casts weirdly. Some cases enforce regular casting in attempt to work around this
     - Limit casting: when sending binding for use with LIMIT you need to remember to cast it as integer, but with this controller - just mark it as `'limit'`
     - Like casting: when sending binding for use with LIKE  you need to enclose it in `%` yourself, but with this controller - just mark it as `'like'`
     - Date and time casting: mark a binding as `'date'` or `'time'` and script will attempt to check if it's a datetime value and convert it to an appropriate string for you. Or even get current time, if you do not want to use engine's own functions
-  - Semantical wrappers: a set of functions for SELECTs which clearly state, what they will be returning (row, column, everything)
+  - Semantic wrappers: a set of functions for SELECT which clearly state, what they will be returning (row, column, everything)
   - Smart result return: if you send a single query, script will attempt to identify what it is and do either `fetch()` or `fetchAll()` or `rowCount()` and setting appropriate result. Drawback is that you need to use `getResult()` afterwards.
 
 ## How to use
 ###### *Please, note, that I am using MySQL as main DB engine in my projects, thus I may miss some peculiarities of other engines. Please, let me know of them, so that they can be incorporated.*
 
-First you need to create a \Config object and set it's parameters like this:
+First you need to create a \Config object and set its parameters like this:
 ```php
 $config = (new \Simbiat\Database\Config)->setUser('user')->setPassword('password')->setDB('database');
 ```
-The above line is the minimum you will require. Additionally you can set driver options like this:
+The above line is the minimum you will require. Additionally, you can set driver options like this:
 ```php
 $config->setOption(\PDO::MYSQL_ATTR_FOUND_ROWS, true)->setOption(\PDO::MYSQL_ATTR_INIT_COMMAND, 'SET @@global.character_set_client = \'utf8mb4\', @@global.character_set_connection = \'utf8mb4\', @@global.character_set_database = \'utf8mb4\', @@global.character_set_results = \'utf8mb4\', @@global.character_set_server = \'utf8mb4\', @@global.time_zone=\'+00:00\'');
 ```
@@ -47,7 +47,7 @@ To utilize \Controller you need to establish as shown above and then call either
 ```php
 (new \Simbiat\Database\Controller)->count('SELECT COUNT(*) FROM `table`');
 ```
-And this one will return a boolean, advising if something exists in a table:
+This one will return a boolean, advising if something exists in a table:
 ```php
 (new \Simbiat\Database\Controller)->check('SELECT * FROM `table` WHERE `time`=:value', [':value'=>['', 'time']]);
 ```
