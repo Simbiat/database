@@ -25,35 +25,107 @@ class Controller
     }
 
     /**
+     * @param string|array $queries - query/queries to run
+     * @param array $bindings - global bindings, that need to be applied to all queries
+     * @param int $fetch_style - FETCH type used by SELECT queries. Applicable only if 1 query is sent
+     * @param mixed|null $fetch_argument - fetch mode for PDO
+     * @param array $ctor_args - constructorArgs for fetchAll PDO function
+     * @param bool $transaction - flag whether to use TRANSACTION mode. TRUE by default to allow more consistency
+     * @return bool
      * @throws \Exception
      */
-    public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, mixed $fetch_argument = NULL, array $ctor_args = []): bool
+    public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, int|string|object|null $fetch_argument = NULL, array $ctor_args = [], bool $transaction = true): bool
     {
+        #Check if query string was sent
+        if (is_string($queries)) {
+            #Convert to array
+            $queries = [[$queries, $bindings]];
+        } else {
+            #Ensure integer keys
+            $queries = array_values($queries);
+            #Iterrate over array to merge binding
+            foreach ($queries as $key=>$query) {
+                #Ensure integer keys
+                $queries[$key] = array_values($query);
+                #Check if query is a string
+                if (!is_string($queries[$key][0])) {
+                    #Exit earlier for speed
+                    throw new \UnexpectedValueException('Query #'.$key.' is not a string.');
+                }
+                #Merge bindings
+                $queries[$key][1] = array_merge($queries[$key][1] ?? [], $bindings);
+            }
+        }
+        #Remove any SELECT queries and comments if more than 1 query is sent
+        if (count($queries) > 1) {
+            foreach ($queries as $key=>$query) {
+                #Check if query is SELECT
+                if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query[0]) === 1) {
+                    unset($queries[$key]);
+                    continue;
+                }
+                #Check if query is a comment
+                if (preg_match('/^\s*(--|#|\/\*).*$/', $query[0]) === 1) {
+                    unset($queries[$key]);
+                }
+            }
+        }
+        #Check if array of queries is empty
+        if (empty($queries)) {
+            #Issue a notice
+            trigger_error('No queries were provided to `query()` function', E_USER_NOTICE);
+            #Do not consider this an "error" by default and return `true`
+            return true;
+        }
+        #Flag for SELECT, used as sort of "cache" instead of counting values every time
+        $select = false;
+        #If we have just 1 query, disable transaction
+        if (count($queries) === 1) {
+            $transaction = false;
+            if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $queries[0][0]) === 1) {
+                $select = true;
+            }
+        }
+        #Check if we are running a SELECT
+        if (!$select) {
+            #If not - use $result as counter for number of affected rows and reset it before run
+            $this->result = 0;
+        }
+        #Set counter for tries
         $try = 0;
         do {
             try {
+                #Indicate actual try
                 $try++;
-                if (is_string($queries)) {
-                    $sql = $this->dbh->prepare($queries);
-                    #Preparing bindings
-                    $sql = $this->binding($sql, $bindings);
-                    set_time_limit($this->maxRunTime);
-                    if ($this->debug) {
-                        echo $queries.'<br>';
-                        ob_flush();
-                        flush();
+                #Initiate transaction, if we are using it
+                if ($transaction) {
+                    $this->dbh->beginTransaction();
+                }
+                #Loop through queries
+                foreach ($queries as $key=>$query) {
+                    #Prepare query
+                    $sql = $this->dbh->prepare($query[0]);
+                    #Bind values, if any
+                    if (!empty($query[1])) {
+                        $sql = $this->binding($sql, $query[1]);
                     }
-                    $sql->execute();
+                    #Increasing time limit for potentially long operations (like optimize)
+                    set_time_limit($this->maxRunTime);
+                    #Increase the number of queries
                     self::$queries++;
+                    #Execute the query
+                    $sql->execute();
+                    #If debug is enabled dump PDO details
                     if ($this->debug) {
                         $sql->debugDumpParams();
                         ob_flush();
                         flush();
                     }
-                    if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $queries) === 1) {
+                    if ($select) {
+                        #Adjust fetching mode
                         if ($fetch_argument === 'row') {
                             $this->result = $sql->fetch($fetch_style);
-                        } elseif ($fetch_style === \PDO::FETCH_COLUMN || $fetch_style === \PDO::FETCH_FUNC) {
+                        } elseif (in_array($fetch_style, [\PDO::FETCH_COLUMN, \PDO::FETCH_FUNC, \PDO::FETCH_INTO])) {
                             $this->result = $sql->fetchAll($fetch_style, $fetch_argument);
                         } elseif ($fetch_style === \PDO::FETCH_CLASS) {
                             $this->result = $sql->fetchAll($fetch_style, $fetch_argument, $ctor_args);
@@ -61,54 +133,16 @@ class Controller
                             $this->result = $sql->fetchAll($fetch_style);
                         }
                     } else {
-                        $this->result = $sql->rowCount();
+                        #Increase counter of affected rows (inserted, deleted, updated)
+                        $this->result += $sql->rowCount();
                     }
-                } else {
-                    $this->dbh->beginTransaction();
-                    foreach ($queries as $sequence=>$query) {
-                        if (is_string($query)) {
-                            $actualQuery = $query;
-                        } else {
-                            if (is_array($query) && is_string($query[0])) {
-                                $actualQuery = $query[0];
-                            } else {
-                                throw new \UnexpectedValueException('Query #'.$sequence.' in bulk is not a string.');
-                            }
-                        }
-                        #Check if it's a command which may return rows
-                        if (preg_match('/(^('.implode('|', self::selects).'))/i', $actualQuery) === 1 && preg_match('/^SELECT.*FOR UPDATE$/mi', $actualQuery) !== 1) {
-                            trigger_error('A selector command ('.implode(', ', self::selects).') detected in bulk of queries. Output wll not be fetched and may result in errors in further queries. Consider revising: '.$actualQuery);
-                        }
-                        #Check if it's a comment and skip it
-                        if (preg_match('/^\s*(--|#|\/\*).*$/', $actualQuery) === 1) {
-                            continue;
-                        }
-                        $sql = $this->dbh->prepare($actualQuery);
-                        #Preparing bindings
-                        if (is_array($query)) {
-                            if (!empty($query[1])) {
-                                if (is_array($query[1])) {
-                                    $sql = $this->binding($sql, array_merge($bindings, $query[1]));
-                                } else {
-                                    throw new \UnexpectedValueException('Bindings provided for query #'.$sequence.' are not an array.');
-                                }
-                            }
-                        }
-                        #Increasing time limit for potentially long operations (like optimize)
-                        set_time_limit($this->maxRunTime);
-                        if ($this->debug) {
-                            echo $actualQuery.'<br>';
-                            ob_flush();
-                            flush();
-                        }
-                        $sql->execute();
-                        self::$queries++;
-                        if ($this->debug) {
-                            $sql->debugDumpParams();
-                            ob_flush();
-                            flush();
-                        }
+                    #Remove the query from the bulk, if not using transaction mode, to avoid repeating of commands
+                    if (!$transaction) {
+                        unset($queries[$key]);
                     }
+                }
+                #Initiate transaction, if we are using it
+                if ($transaction) {
                     $this->dbh->commit();
                 }
                 return true;
