@@ -337,6 +337,15 @@ class Controller
         return [];
     }
 
+    #Select random row from table
+    /**
+     * @throws \Exception
+     */
+    public function selectRandom(string $table, string $column = '', int $number = 1): array
+    {
+        return $this->selectAll('SELECT '.(empty($column) ? '*' : '`'.$column.'`').' FROM `'.$table.'` ORDER BY RAND() LIMIT :number;', [':number'=>[($number >= 1 ? $number : 1), 'int']]);
+    }
+
     #Returns count value from SELECT.
     /**
      * @throws \Exception
