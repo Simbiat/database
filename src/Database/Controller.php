@@ -263,7 +263,6 @@ class Controller
     }
 
     #Returns only 1 row from SELECT (essentially LIMIT 1).
-
     /**
      * @throws \Exception
      */
@@ -279,7 +278,6 @@ class Controller
     }
 
     #Returns column (first by default) even if original SELECT requests for more. Change 3rd parameter accordingly to use another column as key (starting from 0).
-
     /**
      * @throws \Exception
      */
@@ -295,7 +293,6 @@ class Controller
     }
 
     #Returns a value directly, instead of array containing that value. Useful for getting specific settings from DB. No return typing, since it may vary, so be careful with that.
-
     /**
      * @throws \Exception
      */
@@ -311,7 +308,6 @@ class Controller
     }
 
     #Returns key->value pair(s) based on 2 columns. First column (by default) is used as key. Change 3rd parameter accordingly to use another column as key (starting from 0).
-
     /**
      * @throws \Exception
      */
@@ -327,7 +323,6 @@ class Controller
     }
 
     #Returns unique values from a column (first by default). Change 3rd parameter accordingly to use another column as key (starting from 0).
-
     /**
      * @throws \Exception
      */
@@ -343,7 +338,6 @@ class Controller
     }
 
     #Returns count value from SELECT.
-
     /**
      * @throws \Exception
      */
@@ -366,7 +360,6 @@ class Controller
     }
 
     #Returns boolean value indicating, if anything matching SELECT exists.
-
     /**
      * @throws \Exception
      */
@@ -379,6 +372,40 @@ class Controller
             }
         }
         return false;
+    }
+
+    #Check if a table exists
+    /**
+     * @throws \Exception
+     */
+    public function checkTable(string $table, string $schema = ''): bool
+    {
+        #Adjust query depending on whether schema is set
+        if (empty($schema)) {
+            $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table;';
+            $bindings = [':table' => $table];
+        } else {
+            $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table AND `TABLE_SCHEMA` = :schema;';
+            $bindings = [':table' => $table, ':schema' => $schema];
+        }
+        return $this->check($query, $bindings);
+    }
+
+    #Check if a column exists in a table
+    /**
+     * @throws \Exception
+     */
+    public function checkColumn(string $table, string $column, string $schema = ''): bool
+    {
+        #Adjust query depending on whether schema is set
+        if (empty($schema)) {
+            $query = 'SELECT `COLUMN_NAME` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME` = :table AND `COLUMN_NAME` = :column;';
+            $bindings = [':table' => $table, ':column' => $column];
+        } else {
+            $query = 'SELECT `COLUMN_NAME` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME` = :table AND `COLUMN_NAME` = :column AND `TABLE_SCHEMA` = :schema;';
+            $bindings = [':table' => $table, ':column' => $column, ':schema' => $schema];
+        }
+        return $this->check($query, $bindings);
     }
 
     #Returns array of counts  for each unique value in column. Does not use bindings, so be careful not to process user input directly.
