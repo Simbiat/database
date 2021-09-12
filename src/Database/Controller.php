@@ -218,6 +218,36 @@ class Controller
                     case 'varchar2':
                         $sql->bindValue($binding, strval($value[0]));
                         break;
+                    case 'match':
+                        #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
+                        #Trim first
+                        $newValue = preg_replace('/^\p{Z}+|\p{Z}+$/u', '', strval($value[0]));
+                        #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
+                        $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
+                        #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
+                        $newValue = preg_replace('/(?<!^| )[+\-<>~]/u', '', $newValue);
+                        #Remove all double quotes and asterisks, that are not preceded by either beginning of string, letter, number or space
+                        $newValue = preg_replace('/(?<![\p{L}\p{N}_ ]|^)[*"]/u', '', $newValue);
+                        #Remove all double quotes and asterisks, that are inside text
+                        $newValue = preg_replace('/([\p{L}\p{N}_])([*"])([\p{L}\p{N}_])/u', '', $newValue);
+                        #Remove all opening parenthesis which are not preceded by beginning of string or space
+                        $newValue = preg_replace('/(?<!^| )\(/u', '', $newValue);
+                        #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
+                        $newValue = preg_replace('/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u', '', $newValue);
+                        #Remove all double quotes if the count is not even
+                        if (substr_count($newValue, '"') % 2 !== 0) {
+                            $newValue = preg_replace('/"/u', '', $newValue);
+                        }
+                        #Remove all parenthesis if count of closing does not match count of opening ones
+                        if (substr_count($newValue, '(') !== substr_count($newValue, ')')) {
+                            $newValue = preg_replace('/[()]/u', '', $newValue);
+                        }
+                        $sql->bindValue($binding, $newValue);
+                        break;
+                    case 'like':
+                        #Same as string, but wrapped in % for LIKE '%string%'
+                        $sql->bindValue($binding, '%'.$value[0].'%');
+                        break;
                     case 'lob':
                     case 'large':
                     case 'object':
@@ -428,7 +458,7 @@ class Controller
     #$order - DESC or ASC order the output by `count`
     #$limit - optional limit of the output
     #$extraGroup - optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
-    #$altJoin - apply JOIN logic AFTER the original COUNT. In some cases this may provide significant performance improvement, since we will be JOINing only a the result, not the whole table. This approach is disabled by default, because depending on what is sent in $joinReturn and $extraGroup it may easily fail or provide unexpected results.
+    #$altJoin - apply JOIN logic AFTER the original COUNT. In some cases this may provide significant performance improvement, since we will be JOINing only the result, not the whole table. This approach is disabled by default, because depending on what is sent in $joinReturn and $extraGroup it may easily fail or provide unexpected results.
     #$extraColumns - optional list of additional columns to return on initial SELECT. May sometimes help with errors in case of $altJoin. If this is used you can use `tempresult` in $joinReturn.
     /**
      * @throws \Exception
