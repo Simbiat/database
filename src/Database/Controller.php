@@ -394,7 +394,7 @@ class Controller
                 return 0;
             }
         } else {
-            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).' COUNT.');
+            throw new \UnexpectedValueException('Query is not SELECT COUNT.');
         }
     }
 
