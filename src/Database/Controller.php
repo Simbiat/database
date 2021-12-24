@@ -242,6 +242,10 @@ class Controller
                         if (substr_count($newValue, '(') !== substr_count($newValue, ')')) {
                             $newValue = preg_replace('/[()]/u', '', $newValue);
                         }
+                        #Check if the new value is just the set of operators and if it is - set the value to an empty string
+                        if (preg_match('/[+\-<>~()"*]+/u', $newValue)) {
+                            $newValue = '';
+                        }
                         $sql->bindValue($binding, $newValue);
                         break;
                     case 'like':
