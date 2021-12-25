@@ -42,7 +42,6 @@ final class Pool
             self::$pool[$id]['config'] = $config;
             try {
                 self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
-                echo 'here';exit;
                 self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_EMULATE_PREPARES, true);
             } catch (\Throwable) {
                 self::$pool[$id]['connection'] = null;
