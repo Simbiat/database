@@ -243,7 +243,7 @@ class Controller
                             $newValue = preg_replace('/[()]/u', '', $newValue);
                         }
                         #Check if the new value is just the set of operators and if it is - set the value to an empty string
-                        if (preg_match('/[+\-<>~()"*]+/u', $newValue)) {
+                        if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
                             $newValue = '';
                         }
                         $sql->bindValue($binding, $newValue);
@@ -257,9 +257,6 @@ class Controller
                     case 'object':
                     case 'blob':
                         $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
-                        break;
-                    case 'like':
-                        $sql->bindValue($binding, '%'.$value[0].'%');
                         break;
                     default:
                         if (is_int($value[1])) {
