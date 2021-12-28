@@ -221,7 +221,7 @@ class Controller
                     case 'match':
                         #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
                         #Trim first
-                        $newValue = preg_replace('/^\p{Z}+|\p{Z}+$/u', '', strval($value[0]));
+                        $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', strval($value[0]));
                         #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
                         $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
                         #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
