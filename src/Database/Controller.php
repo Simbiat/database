@@ -46,6 +46,9 @@ class Controller
             #Iterrate over array to merge binding
             foreach ($queries as $key=>$query) {
                 #Ensure integer keys
+                if (is_string($query)) {
+                    $query = [0 => $query, 1 => []];
+                }
                 $queries[$key] = array_values($query);
                 #Check if query is a string
                 if (!is_string($queries[$key][0])) {
