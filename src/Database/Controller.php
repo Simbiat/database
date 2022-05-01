@@ -32,7 +32,6 @@ class Controller
      * @param array $ctor_args - constructorArgs for fetchAll PDO function
      * @param bool $transaction - flag whether to use TRANSACTION mode. TRUE by default to allow more consistency
      * @return bool
-     * @throws \Exception
      */
     public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, int|string|object|null $fetch_argument = NULL, array $ctor_args = [], bool $transaction = true): bool
     {
@@ -149,7 +148,7 @@ class Controller
                     $this->dbh->commit();
                 }
                 return true;
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $error = $e->getMessage().$e->getTraceAsString();
                 if (isset($sql) && $this->debug) {
                     $sql->debugDumpParams();
@@ -170,7 +169,9 @@ class Controller
                 if ($this->dbh->inTransaction()) {
                     $this->dbh->rollBack();
                     if (!$deadlock) {
-                        throw $e;
+                        if ($this->debug) {
+                            throw new \RuntimeException('Failed to run queries', 0, $e);
+                        }
                     }
                 }
                 #If deadlock - sleep and then retry
@@ -178,11 +179,13 @@ class Controller
                     sleep($this->sleep);
                     continue;
                 } else {
-                    throw $e;
+                    if ($this->debug) {
+                        throw new \RuntimeException('Failed to run queries', 0, $e);
+                    }
                 }
             }
         } while ($try <= $this->maxTries);
-        throw new \Exception('Deadlock encountered for set maximum of '.$this->maxTries.' tries.');
+        throw new \RuntimeException('Deadlock encountered for set maximum of '.$this->maxTries.' tries.');
     }
 
     #Function mainly for convenience and some types enforcing, which sometimes 'fail' in PDO itself
@@ -282,119 +285,153 @@ class Controller
     #Useful semantic wrappers#
     ##########################
     #Return full results as multidimensional array (associative by default).
-    /**
-     * @throws \Exception
-     */
     public function selectAll(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
     {
-        if ($this->isSelect($query) === true) {
-            self::$queries++;
-            if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult())) {
-                return $this->getResult();
+        try {
+            if ($this->isSelect($query) === true) {
+                self::$queries++;
+                if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult())) {
+                    return $this->getResult();
+                }
             }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to select rows', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
         }
         return [];
     }
 
     #Returns only 1 row from SELECT (essentially LIMIT 1).
-    /**
-     * @throws \Exception
-     */
     public function selectRow(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
     {
-        if ($this->isSelect($query) === true) {
-            self::$queries++;
-            if ($this->query($query, $bindings, $fetchMode, 'row') && is_array($this->getResult())) {
-                return $this->getResult();
+        try {
+            if ($this->isSelect($query) === true) {
+                self::$queries++;
+                if ($this->query($query, $bindings, $fetchMode, 'row') && is_array($this->getResult())) {
+                    return $this->getResult();
+                }
             }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to select row', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
         }
         return [];
     }
 
     #Returns column (first by default) even if original SELECT requests for more. Change 3rd parameter accordingly to use another column as key (starting from 0).
-    /**
-     * @throws \Exception
-     */
     public function selectColumn(string $query, array $bindings = [], int $column = 0): array
     {
-        if ($this->isSelect($query) === true) {
-            self::$queries++;
-            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
-                return $this->getResult();
+        try {
+            if ($this->isSelect($query) === true) {
+                self::$queries++;
+                if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
+                    return $this->getResult();
+                }
             }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to select column', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
         }
         return [];
     }
 
     #Returns a value directly, instead of array containing that value. Useful for getting specific settings from DB. No return typing, since it may vary, so be careful with that.
-    /**
-     * @throws \Exception
-     */
     public function selectValue(string $query, array $bindings = [], int $column = 0)
     {
-        if ($this->isSelect($query) === true) {
-            self::$queries++;
-            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
-                return ($this->getResult()[$column] ?? NULL);
+        try {
+            if ($this->isSelect($query) === true) {
+                self::$queries++;
+                if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
+                    return ($this->getResult()[$column] ?? NULL);
+                }
             }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to select value', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
         }
         return NULL;
     }
 
     #Returns key->value pair(s) based on 2 columns. First column (by default) is used as key. Change 3rd parameter accordingly to use another column as key (starting from 0).
-    /**
-     * @throws \Exception
-     */
     public function selectPair(string $query, array $bindings = [], int $column = 0): array
     {
-        if ($this->isSelect($query) === true) {
-            self::$queries++;
-            if ($this->query($query, $bindings, \PDO::FETCH_KEY_PAIR, $column) && is_array($this->getResult())) {
-                return $this->getResult();
+        try {
+            if ($this->isSelect($query) === true) {
+                self::$queries++;
+                if ($this->query($query, $bindings, \PDO::FETCH_KEY_PAIR, $column) && is_array($this->getResult())) {
+                    return $this->getResult();
+                }
             }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to select pairs', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
         }
         return [];
     }
 
     #Returns unique values from a column (first by default). Change 3rd parameter accordingly to use another column as key (starting from 0).
-    /**
-     * @throws \Exception
-     */
     public function selectUnique(string $query, array $bindings = [], int $column = 0): array
     {
-        if ($this->isSelect($query) === true) {
-            self::$queries++;
-            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
-                return $this->getResult();
+        try {
+            if ($this->isSelect($query) === true) {
+                self::$queries++;
+                if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
+                    return $this->getResult();
+                }
             }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to select unique rows', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
         }
         return [];
     }
 
     #Select random row from table
-    /**
-     * @throws \Exception
-     */
     public function selectRandom(string $table, string $column = '', int $number = 1): array
     {
-        return $this->selectAll('SELECT '.(empty($column) ? '*' : '`'.$column.'`').' FROM `'.$table.'` ORDER BY RAND() LIMIT :number;', [':number'=>[($number >= 1 ? $number : 1), 'int']]);
+        try {
+            return $this->selectAll('SELECT ' . (empty($column) ? '*' : '`' . $column . '`') . ' FROM `' . $table . '` ORDER BY RAND() LIMIT :number;', [':number' => [(max($number, 1)), 'int']]);
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to select random rows', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
+            return [];
+        }
     }
 
     #Returns count value from SELECT.
-    /**
-     * @throws \Exception
-     */
     public function count(string $query, array $bindings = []): int
     {
         if (preg_match('/^\s*SELECT COUNT/mi', $query) === 1) {
             self::$queries++;
-            if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, 0) && is_array($this->getResult())) {
-                if (empty($this->getResult())) {
-                    return 0;
+            try {
+                if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, 0) && is_array($this->getResult())) {
+                    if (empty($this->getResult())) {
+                        return 0;
+                    } else {
+                        return intval($this->getResult()[0]);
+                    }
                 } else {
-                    return intval($this->getResult()[0]);
+                    return 0;
                 }
-            } else {
+            } catch (\Throwable $e) {
+                if ($this->debug) {
+                    throw new \RuntimeException('Failed to count rows', 0, $e);
+                }
+                error_log($e->getMessage().$e->getTraceAsString());
                 return 0;
             }
         } else {
@@ -403,52 +440,67 @@ class Controller
     }
 
     #Returns boolean value indicating, if anything matching SELECT exists.
-    /**
-     * @throws \Exception
-     */
     public function check(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): bool
     {
-        if ($this->isSelect($query) === true) {
-            self::$queries++;
-            if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult()) && !empty($this->getResult())) {
-                return true;
+        try {
+            if ($this->isSelect($query) === true) {
+                self::$queries++;
+                if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult()) && !empty($this->getResult())) {
+                    return true;
+                }
             }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to check if value exists', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
+            return false;
         }
         return false;
     }
 
     #Check if a table exists
-    /**
-     * @throws \Exception
-     */
     public function checkTable(string $table, string $schema = ''): bool
     {
-        #Adjust query depending on whether schema is set
-        if (empty($schema)) {
-            $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table;';
-            $bindings = [':table' => $table];
-        } else {
-            $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table AND `TABLE_SCHEMA` = :schema;';
-            $bindings = [':table' => $table, ':schema' => $schema];
+        try {
+            #Adjust query depending on whether schema is set
+            if (empty($schema)) {
+                $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table;';
+                $bindings = [':table' => $table];
+            } else {
+                $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table AND `TABLE_SCHEMA` = :schema;';
+                $bindings = [':table' => $table, ':schema' => $schema];
+            }
+            return $this->check($query, $bindings);
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to check if table exists', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
+            return false;
         }
-        return $this->check($query, $bindings);
     }
 
     #Check if a column exists in a table
-    /**
-     * @throws \Exception
-     */
     public function checkColumn(string $table, string $column, string $schema = ''): bool
     {
-        #Adjust query depending on whether schema is set
-        if (empty($schema)) {
-            $query = 'SELECT `COLUMN_NAME` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME` = :table AND `COLUMN_NAME` = :column;';
-            $bindings = [':table' => $table, ':column' => $column];
-        } else {
-            $query = 'SELECT `COLUMN_NAME` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME` = :table AND `COLUMN_NAME` = :column AND `TABLE_SCHEMA` = :schema;';
-            $bindings = [':table' => $table, ':column' => $column, ':schema' => $schema];
+        try {
+            #Adjust query depending on whether schema is set
+            if (empty($schema)) {
+                $query = 'SELECT `COLUMN_NAME` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME` = :table AND `COLUMN_NAME` = :column;';
+                $bindings = [':table' => $table, ':column' => $column];
+            } else {
+                $query = 'SELECT `COLUMN_NAME` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME` = :table AND `COLUMN_NAME` = :column AND `TABLE_SCHEMA` = :schema;';
+                $bindings = [':table' => $table, ':column' => $column, ':schema' => $schema];
+            }
+            return $this->check($query, $bindings);
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to check if column exists', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
+            return false;
         }
-        return $this->check($query, $bindings);
     }
 
     #Returns array of counts  for each unique value in column. Does not use bindings, so be careful not to process user input directly.
@@ -464,9 +516,6 @@ class Controller
     #$extraGroup - optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
     #$altJoin - apply JOIN logic AFTER the original COUNT. In some cases this may provide significant performance improvement, since we will be JOINing only the result, not the whole table. This approach is disabled by default, because depending on what is sent in $joinReturn and $extraGroup it may easily fail or provide unexpected results.
     #$extraColumns - optional list of additional columns to return on initial SELECT. May sometimes help with errors in case of $altJoin. If this is used you can use `tempresult` in $joinReturn.
-    /**
-     * @throws \Exception
-     */
     public function countUnique(string $table, string $columnName, string $where = '', string $joinTable = '', string $joinType = 'INNER', string $joinOn = '', string $joinReturn = '', string $order = 'DESC', int $limit = 0, array $extraGroup = [], bool $altJoin = false, array $extraColumns = []): array
     {
         #Prevent negative LIMIT
@@ -501,14 +550,22 @@ class Controller
             }
         }
         self::$queries++;
-        if ($this->query($query) && is_array($this->getResult())) {
-            return $this->getResult();
-        } else {
+        try {
+            if ($this->query($query) && is_array($this->getResult())) {
+                return $this->getResult();
+            } else {
+                return [];
+            }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to count unique values', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
             return [];
         }
     }
 
-    #Similar to countUnique, but utilizes SUM based on comparison of the column's values against the list provided. Each `value` will be present in a separate column. In some cases you results will look like transposed countUnique, but in other cases this can provide some more flexibility in terms of how to structure them.
+    #Similar to countUnique, but utilizes SUM based on comparison of the column's values against the list provided. Each `value` will be present in a separate column. In some cases your results will look like transposed countUnique, but in other cases this can provide some more flexibility in terms of how to structure them.
     #$table - table name to count in
     #$columnName - column to count
     #$values - list of values to check for. Defaults to 0 and 1 (boolean)
@@ -521,9 +578,6 @@ class Controller
     #$order - DESC or ASC order the output by 1 (that is 1st column in SELECT)
     #$limit - optional limit of the output
     #$extraGroup - optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
-    /**
-     * @throws \Exception
-     */
     public function sumUnique(string $table, string $columnName, array $values = [], array $names = [], string $where = '', string $joinTable = '', string $joinType = 'INNER', string $joinOn = '', string $joinReturn = '', string $order = 'DESC', int $limit = 0, array $extraGroup = []): array
     {
         #Default $values
@@ -579,9 +633,17 @@ class Controller
             }
         }
         self::$queries++;
-        if ($this->query($query, $bindings) && is_array($this->getResult())) {
-            return $this->getResult();
-        } else {
+        try {
+            if ($this->query($query, $bindings) && is_array($this->getResult())) {
+                return $this->getResult();
+            } else {
+                return [];
+            }
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                throw new \RuntimeException('Failed to sum unique values', 0, $e);
+            }
+            error_log($e->getMessage().$e->getTraceAsString());
             return [];
         }
     }
@@ -590,7 +652,7 @@ class Controller
     #Regexp taken from https://stackoverflow.com/questions/24423260/split-sql-statements-in-php-on-semicolons-but-not-inside-quotes
     public function stringToQueries(string $string): array
     {
-        return preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?![ ]*$)~', $string);
+        return preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?! *$)~', $string);
     }
 
     #Helper function to check if query is a select(able) one
