@@ -171,6 +171,8 @@ class Controller
                     if (!$deadlock) {
                         if ($this->debug) {
                             throw new \RuntimeException('Failed to run queries', 0, $e);
+                        } else {
+                            return false;
                         }
                     }
                 }
@@ -181,6 +183,8 @@ class Controller
                 } else {
                     if ($this->debug) {
                         throw new \RuntimeException('Failed to run queries', 0, $e);
+                    } else {
+                        return false;
                     }
                 }
             }
