@@ -43,6 +43,7 @@ final class Pool
             self::$pool[$id]['config'] = $config;
             try {
                 self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
+                self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_EMULATE_PREPARES, true);
             } catch (\Throwable $exception) {
                 self::$errors[$id] = [
                     'code' => $exception->getCode(),
