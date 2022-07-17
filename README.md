@@ -43,6 +43,11 @@ If connection is established successfully you then can get \PDO object for it by
 ```
 Or sending a previous `$config` or connection ID if you need a specific one. \Controller class uses variant without parameters for flexibility, but can be overridden, if deemed necessary.
 
+If connection failed, you will be able to get errors using
+```php
+\Simbiat\Database\Pool::$errors
+```
+
 To utilize \Controller you need to establish as shown above and then call either it `query()` function or any of the wrappers. For example, this line will count rows in a table and return only the number of those rows, that is an integer:
 ```php
 (new \Simbiat\Database\Controller)->count('SELECT COUNT(*) FROM `table`');

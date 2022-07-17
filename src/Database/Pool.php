@@ -6,6 +6,7 @@ final class Pool
 {
     private static array $pool = [];
     public static ?\PDO $activeConnection = NULL;
+    public static ?array $errors = NULL;
 
     public static function openConnection(Config $config = NULL, string $id = NULL): ?\PDO
     {
@@ -42,8 +43,14 @@ final class Pool
             self::$pool[$id]['config'] = $config;
             try {
                 self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
-                self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_EMULATE_PREPARES, true);
-            } catch (\Throwable) {
+            } catch (\Throwable $exception) {
+                self::$errors[$id] = [
+                    'code' => $exception->getCode(),
+                    'message' => $exception->getMessage(),
+                    'DSN' => $config->getDSN(),
+                    'user' => $config->getUser(),
+                    'options' => $config->getOptions(),
+                ];
                 self::$pool[$id]['connection'] = null;
             }
             self::$activeConnection = self::$pool[$id]['connection'];
