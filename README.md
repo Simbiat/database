@@ -37,6 +37,8 @@ After you set it up to your liking (can be done in one line), you need to add it
 ```
 Passing ID is not required but will improve your life if you will need to juggle multiple connections.
 
+You can also pass the third argument (`maxTries`), if you want to have the script to retry connection, in case of failures. Default is `1`.
+
 If connection is established successfully you then can get \PDO object for it by not sending any parameters to the pool:
 ```php
 (new \Simbiat\Database\Pool)->openConnection();

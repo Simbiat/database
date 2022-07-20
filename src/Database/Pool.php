@@ -8,8 +8,11 @@ final class Pool
     public static ?\PDO $activeConnection = NULL;
     public static ?array $errors = NULL;
 
-    public static function openConnection(Config $config = NULL, string $id = NULL): ?\PDO
+    public static function openConnection(Config $config = NULL, string $id = NULL, int $maxTries = 1): ?\PDO
     {
+        if ($maxTries < 1) {
+            $maxTries = 1;
+        }
         if (empty($config) && empty($id)) {
             if (empty(self::$pool)) {
                 throw new \UnexpectedValueException('Neither Simbiat\\Database\\Config or ID was provided and there are no connections in pool to work with.');
@@ -41,19 +44,27 @@ final class Pool
                 $id = uniqid('', true);
             }
             self::$pool[$id]['config'] = $config;
-            try {
-                self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
-                self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_EMULATE_PREPARES, true);
-            } catch (\Throwable $exception) {
-                self::$errors[$id] = [
-                    'code' => $exception->getCode(),
-                    'message' => $exception->getMessage(),
-                    'DSN' => $config->getDSN(),
-                    'user' => $config->getUser(),
-                    'options' => $config->getOptions(),
-                ];
-                self::$pool[$id]['connection'] = null;
-            }
+            #Set counter for tries
+            $try = 0;
+            do {
+                #Indicate actual try
+                $try++;
+                try {
+                    self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
+                    self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_EMULATE_PREPARES, true);
+                } catch (\Throwable $exception) {
+                    self::$errors[$id] = [
+                        'code' => $exception->getCode(),
+                        'message' => $exception->getMessage(),
+                        'DSN' => $config->getDSN(),
+                        'user' => $config->getUser(),
+                        'options' => $config->getOptions(),
+                    ];
+                    if ($try === $maxTries) {
+                        self::$pool[$id]['connection'] = NULL;
+                    }
+                }
+            } while ($try <= $maxTries);
             self::$activeConnection = self::$pool[$id]['connection'];
             return self::$activeConnection;
         } elseif (!empty($id)) {

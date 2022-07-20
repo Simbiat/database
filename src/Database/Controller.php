@@ -159,7 +159,7 @@ class Controller
                 #Check if deadlock
                 if (isset($sql) && ($sql->errorCode() == '40001' || preg_match('/.*(deadlock|try restarting transaction).*/mis', $error) === 1 )) {
                     $deadlock = true;
-                    if ($try == $this->maxTries) {
+                    if ($try === $this->maxTries) {
                         error_log($error);
                     }
                 } else {
