@@ -282,7 +282,7 @@ class Controller
 
     private function time(string|float|int $time = 0, string $format = 'Y-m-d H:i:s.u'): string
     {
-        return (new SandClock)->setFormat($format)->format($time);
+        return SandClock::format($time, $format);
     }
 
     ##########################
