@@ -138,6 +138,8 @@ class Controller
                         #Increase counter of affected rows (inserted, deleted, updated)
                         $this->result += $sql->rowCount();
                     }
+                    #Explicitely close pointer to release resources
+                    $sql->closeCursor();
                     #Remove the query from the bulk, if not using transaction mode, to avoid repeating of commands
                     if (!$transaction) {
                         unset($queries[$key]);
@@ -169,11 +171,7 @@ class Controller
                 if ($this->dbh->inTransaction()) {
                     $this->dbh->rollBack();
                     if (!$deadlock) {
-                        if ($this->debug) {
-                            throw new \RuntimeException('Failed to run queries', 0, $e);
-                        } else {
-                            return false;
-                        }
+                        throw new \RuntimeException('Failed to run queries', 0, $e);
                     }
                 }
                 #If deadlock - sleep and then retry
@@ -181,11 +179,7 @@ class Controller
                     sleep($this->sleep);
                     continue;
                 } else {
-                    if ($this->debug) {
-                        throw new \RuntimeException('Failed to run queries', 0, $e);
-                    } else {
-                        return false;
-                    }
+                    throw new \RuntimeException('Failed to run queries', 0, $e);
                 }
             }
         } while ($try <= $this->maxTries);
