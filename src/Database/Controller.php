@@ -216,7 +216,7 @@ class Controller
             foreach ($bindings as $binding => $value) {
                 if (!is_array($value)) {
                     #Handle malformed UTF
-                    if (is_string($value[0])) {
+                    if (is_string($value)) {
                         $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
                     }
                     $sql->bindValue($binding, $value);
