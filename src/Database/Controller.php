@@ -81,11 +81,11 @@ class Controller
         }
         #Flag for SELECT, used as sort of "cache" instead of counting values every time
         $select = false;
-        #If we have just 1 query, disable transaction
+        #If we have just 1 query, which is a SELECT - disable transaction
         if (count($queries) === 1) {
-            $transaction = false;
             if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $queries[0][0]) === 1) {
                 $select = true;
+                $transaction = false;
             }
         }
         #Check if we are running a SELECT
@@ -105,11 +105,21 @@ class Controller
                 }
                 #Loop through queries
                 foreach ($queries as $key=>$query) {
+                    #Reset variables
+                    $sql = null;
+                    $currentBindings = null;
+                    $currentKey = $key;
                     #Prepare query
-                    $sql = $this->dbh->prepare($query[0]);
+                    if ($this->dbh->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+                        #Force buffered query for MySQL
+                        $sql = $this->dbh->prepare($query[0], [\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true]);
+                    } else {
+                        $sql = $this->dbh->prepare($query[0]);
+                    }
                     #Bind values, if any
                     if (!empty($query[1])) {
-                        $sql = $this->binding($sql, $query[1]);
+                        $currentBindings = $query[1];
+                        $sql = $this->binding($sql, $currentBindings);
                     }
                     #Increasing time limit for potentially long operations (like optimize)
                     set_time_limit($this->maxRunTime);
@@ -126,7 +136,10 @@ class Controller
                     if ($select) {
                         #Adjust fetching mode
                         if ($fetch_argument === 'row') {
-                            $this->result = $sql->fetch($fetch_style);
+                            $this->result = $sql->fetchAll($fetch_style);
+                            if (isset($this->result[0])) {
+                                $this->result = $this->result[0];
+                            }
                         } elseif (in_array($fetch_style, [\PDO::FETCH_COLUMN, \PDO::FETCH_FUNC, \PDO::FETCH_INTO])) {
                             $this->result = $sql->fetchAll($fetch_style, $fetch_argument);
                         } elseif ($fetch_style === \PDO::FETCH_CLASS) {
@@ -158,8 +171,8 @@ class Controller
                     ob_flush();
                     flush();
                 }
-                #Check if deadlock
-                if (isset($sql) && ($sql->errorCode() == '40001' || preg_match('/.*(deadlock|try restarting transaction).*/mis', $error) === 1 )) {
+                #Check if it's a deadlock. Unbuffered queries are not deadlock, but practice showed, that in some cases this error is thrown when there is a lock on resources, and not really an issue with (un)buffered queries. Retrying may help in those cases.
+                if (isset($sql) && ($sql->errorCode() == '40001' || preg_match('/.*(deadlock|try restarting transaction|Cannot execute queries while other unbuffered queries are active).*/mis', $error) === 1 )) {
                     $deadlock = true;
                     if ($try === $this->maxTries) {
                         error_log($error);
@@ -168,10 +181,20 @@ class Controller
                     $deadlock = false;
                     error_log($error);
                 }
+                if (isset($sql)) {
+                    #Ensure pointer is closed
+                    @$sql->closeCursor();
+                }
+                #Set error message
+                if (empty($queries[$currentKey][0])) {
+                    $errMessage = 'Failed to start or end transaction';
+                } else {
+                    $errMessage = 'Failed to run query `'.$queries[ $currentKey ][0].'`'.(!empty($currentBindings) ? ' with following bindings: '.json_encode($currentBindings) : '');
+                }
                 if ($this->dbh->inTransaction()) {
                     $this->dbh->rollBack();
                     if (!$deadlock) {
-                        throw new \RuntimeException('Failed to run queries', 0, $e);
+                        throw new \RuntimeException($errMessage, 0, $e);
                     }
                 }
                 #If deadlock - sleep and then retry
@@ -179,7 +202,7 @@ class Controller
                     sleep($this->sleep);
                     continue;
                 } else {
-                    throw new \RuntimeException('Failed to run queries', 0, $e);
+                    throw new \RuntimeException('Maximum retries reached. '.$errMessage, 0, $e);
                 }
             }
         } while ($try <= $this->maxTries);
@@ -189,87 +212,97 @@ class Controller
     #Function mainly for convenience and some types enforcing, which sometimes 'fail' in PDO itself
     private function binding(\PDOStatement $sql, array $bindings = []): \PDOStatement
     {
-        foreach ($bindings as $binding=>$value) {
-            if (!is_array($value)) {
-                $sql->bindValue($binding, $value);
-            } else {
-                switch(strtolower($value[1])) {
-                    case 'date':
-                        $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
-                        break;
-                    case 'time':
-                        $sql->bindValue($binding, $this->time($value[0]));
-                        break;
-                    case 'bool':
-                    case 'boolean':
-                        $sql->bindValue($binding, boolval($value[0]), \PDO::PARAM_BOOL);
-                        break;
-                    case 'null':
-                        $sql->bindValue($binding, NULL, \PDO::PARAM_NULL);
-                        break;
-                    case 'int':
-                    case 'integer':
-                    case 'number':
-                    case 'limit':
-                    case 'offset':
-                        $sql->bindValue($binding, intval($value[0]), \PDO::PARAM_INT);
-                        break;
-                    case 'str':
-                    case 'string':
-                    case 'text':
-                    case 'float':
-                    case 'varchar':
-                    case 'varchar2':
-                        $sql->bindValue($binding, strval($value[0]));
-                        break;
-                    case 'match':
-                        #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
-                        #Trim first
-                        $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', strval($value[0]));
-                        #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
-                        $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
-                        #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
-                        $newValue = preg_replace('/(?<!^| )[+\-<>~]/u', '', $newValue);
-                        #Remove all double quotes and asterisks, that are not preceded by either beginning of string, letter, number or space
-                        $newValue = preg_replace('/(?<![\p{L}\p{N}_ ]|^)[*"]/u', '', $newValue);
-                        #Remove all double quotes and asterisks, that are inside text
-                        $newValue = preg_replace('/([\p{L}\p{N}_])([*"])([\p{L}\p{N}_])/u', '', $newValue);
-                        #Remove all opening parenthesis which are not preceded by beginning of string or space
-                        $newValue = preg_replace('/(?<!^| )\(/u', '', $newValue);
-                        #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
-                        $newValue = preg_replace('/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u', '', $newValue);
-                        #Remove all double quotes if the count is not even
-                        if (substr_count($newValue, '"') % 2 !== 0) {
-                            $newValue = preg_replace('/"/u', '', $newValue);
-                        }
-                        #Remove all parenthesis if count of closing does not match count of opening ones
-                        if (substr_count($newValue, '(') !== substr_count($newValue, ')')) {
-                            $newValue = preg_replace('/[()]/u', '', $newValue);
-                        }
-                        #Check if the new value is just the set of operators and if it is - set the value to an empty string
-                        if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
-                            $newValue = '';
-                        }
-                        $sql->bindValue($binding, $newValue);
-                        break;
-                    case 'like':
-                        #Same as string, but wrapped in % for LIKE '%string%'
-                        $sql->bindValue($binding, '%'.$value[0].'%');
-                        break;
-                    case 'lob':
-                    case 'large':
-                    case 'object':
-                    case 'blob':
-                        $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
-                        break;
-                    default:
-                        if (is_int($value[1])) {
-                            $sql->bindValue($binding, $value[0], $value[1]);
-                        } else {
+        try {
+            foreach ($bindings as $binding => $value) {
+                if (!is_array($value)) {
+                    $sql->bindValue($binding, $value);
+                } else {
+                    switch (strtolower($value[1])) {
+                        case 'date':
+                            $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
+                            break;
+                        case 'time':
+                            $sql->bindValue($binding, $this->time($value[0]));
+                            break;
+                        case 'bool':
+                        case 'boolean':
+                            $sql->bindValue($binding, boolval($value[0]), \PDO::PARAM_BOOL);
+                            break;
+                        case 'null':
+                            $sql->bindValue($binding, null, \PDO::PARAM_NULL);
+                            break;
+                        case 'int':
+                        case 'integer':
+                        case 'number':
+                        case 'limit':
+                        case 'offset':
+                            $sql->bindValue($binding, intval($value[0]), \PDO::PARAM_INT);
+                            break;
+                        case 'str':
+                        case 'string':
+                        case 'text':
+                        case 'float':
+                        case 'varchar':
+                        case 'varchar2':
                             $sql->bindValue($binding, strval($value[0]));
-                        }
+                            break;
+                        case 'match':
+                            #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
+                            #Trim first
+                            $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', strval($value[0]));
+                            #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
+                            $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
+                            #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
+                            $newValue = preg_replace('/(?<!^| )[+\-<>~]/u', '', $newValue);
+                            #Remove all double quotes and asterisks, that are not preceded by either beginning of string, letter, number or space
+                            $newValue = preg_replace('/(?<![\p{L}\p{N}_ ]|^)[*"]/u', '', $newValue);
+                            #Remove all double quotes and asterisks, that are inside text
+                            $newValue = preg_replace('/([\p{L}\p{N}_])([*"])([\p{L}\p{N}_])/u', '', $newValue);
+                            #Remove all opening parenthesis which are not preceded by beginning of string or space
+                            $newValue = preg_replace('/(?<!^| )\(/u', '', $newValue);
+                            #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
+                            $newValue = preg_replace('/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u', '', $newValue);
+                            #Remove all double quotes if the count is not even
+                            if (substr_count($newValue, '"') % 2 !== 0) {
+                                $newValue = preg_replace('/"/u', '', $newValue);
+                            }
+                            #Remove all parenthesis if count of closing does not match count of opening ones
+                            if (substr_count($newValue, '(') !== substr_count($newValue, ')')) {
+                                $newValue = preg_replace('/[()]/u', '', $newValue);
+                            }
+                            #Check if the new value is just the set of operators and if it is - set the value to an empty string
+                            if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
+                                $newValue = '';
+                            }
+                            $sql->bindValue($binding, $newValue);
+                            break;
+                        case 'like':
+                            #Same as string, but wrapped in % for LIKE '%string%'
+                            $sql->bindValue($binding, '%'.$value[0].'%');
+                            break;
+                        case 'lob':
+                        case 'large':
+                        case 'object':
+                        case 'blob':
+                            $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
+                            break;
+                        default:
+                            if (is_int($value[1])) {
+                                $sql->bindValue($binding, $value[0], $value[1]);
+                            } else {
+                                $sql->bindValue($binding, strval($value[0]));
+                            }
+                    }
                 }
             }
+        } catch (\Throwable $exception) {
+            $errMessage = 'Failed to bind variable `'.$binding.'`';
+            if (is_array($value)) {
+                $errMessage .= ' of type `'.$value[1].'` with value `'.$value[0].'`';
+            } else {
+                $errMessage .= ' with value `'.$value.'`';
+            }
+            throw new \RuntimeException($errMessage, 0, $exception);
         }
         return $sql;
     }
@@ -306,6 +339,15 @@ class Controller
     {
         try {
             if ($this->isSelect($query) === true) {
+                #Check if the query has a limit (any limit)
+                if (preg_match('/\s*LIMIT\s+(\d+\s*,\s*)?\d+\s*;?\s*$/ui', $query) !== 1) {
+                    #If it does not - add it. But first we need to remove the final semicolon if any
+                    #Need to do this, because otherwise I get 2 matches, which results in 2 entries added in further preg_replace
+                    #No idea how to circumvent that
+                    $query = preg_replace('/(;?\s*\z)/mui', '', $query);
+                    #Add LIMIT
+                    $query = preg_replace('/\z/mui', ' LIMIT 0, 1;', $query);
+                }
                 self::$queries++;
                 if ($this->query($query, $bindings, $fetchMode, 'row') && is_array($this->getResult())) {
                     return $this->getResult();
