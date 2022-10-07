@@ -202,7 +202,7 @@ class Controller
                     sleep($this->sleep);
                     continue;
                 } else {
-                    throw new \RuntimeException('Maximum retries reached. '.$errMessage, 0, $e);
+                    throw new \RuntimeException($errMessage, 0, $e);
                 }
             }
         } while ($try <= $this->maxTries);
@@ -215,8 +215,16 @@ class Controller
         try {
             foreach ($bindings as $binding => $value) {
                 if (!is_array($value)) {
+                    #Handle malformed UTF
+                    if (is_string($value[0])) {
+                        $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+                    }
                     $sql->bindValue($binding, $value);
                 } else {
+                    #Handle malformed UTF
+                    if (is_string($value[0])) {
+                        $value[0] = mb_convert_encoding($value[0], 'UTF-8', 'UTF-8');
+                    }
                     switch (strtolower($value[1])) {
                         case 'date':
                             $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
@@ -270,6 +278,10 @@ class Controller
                             if (substr_count($newValue, '(') !== substr_count($newValue, ')')) {
                                 $newValue = preg_replace('/[()]/u', '', $newValue);
                             }
+                            #Remove all operators, that can only precede a text and that do not have text after them (at the end of string). Do this for any possible combinations
+                            $newValue = preg_replace('/[+\-<>~]+$/u', '', $newValue);
+                            #Remove asterisk operator at the beginning of string
+                            $newValue = preg_replace('/^\*/u', '', $newValue);
                             #Check if the new value is just the set of operators and if it is - set the value to an empty string
                             if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
                                 $newValue = '';
