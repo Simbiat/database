@@ -12,6 +12,11 @@ final class Config
     private ?string $socket = NULL;
     private ?string $dbname = NULL;
     private string $charset = 'utf8mb4';
+    private string $appName = 'PHP Generic DB-lib';
+    private ?string $role = NULL;
+    private int $dialect = 3;
+    private string $sslmode = 'verify-full';
+    private string $customString = '';
     private array $PDOptions = [
         \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         \PDO::ATTR_PERSISTENT => false,
@@ -105,7 +110,7 @@ final class Config
 
     public function setCharset(string $charset): self
     {
-        $this->charset=(empty($charset) ? 'utf8mb4' : $charset);
+        $this->charset = $charset ?? 'utf8mb4';
         return $this;
     }
 
@@ -113,13 +118,148 @@ final class Config
     {
         return (empty($this->charset) ? '' : 'charset='.$this->charset.';');
     }
+    
+    #For DB-Lib only
+    public function setAppName(string $appName): self
+    {
+        $this->appName = $appName ?? 'PHP Generic DB-lib';
+        return $this;
+    }
+    
+    #For DB-Lib only
+    public function getAppName(): string
+    {
+        return (empty($this->appName) ? '' : 'appname='.$this->appName.';');
+    }
+    
+    #For Firebird only
+    public function setRole(string $role): self
+    {
+        $this->role = $role ?? null;
+        return $this;
+    }
+    
+    #For Firebird only
+    public function getRole(): string
+    {
+        return (empty($this->role) ? '' : 'role='.$this->role.';');
+    }
+    
+    #For Firebird only
+    public function setDialect(int $dialect): self
+    {
+        if ($dialect !== 0 && $dialect !== 3) {
+            $dialect = 3;
+        }
+        $this->dialect = $dialect;
+        return $this;
+    }
+    
+    #For Firebird only
+    public function getDialect(): string
+    {
+        return 'dialect='.$this->dialect.';';
+    }
+    
+    #For PostgresSQL only
+    public function setSSLMode(string $sslmode): self
+    {
+        if (!in_array($sslmode, ['disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full'])) {
+            $sslmode = 'verify-full';
+        }
+        $this->sslmode = $sslmode;
+        return $this;
+    }
+    
+    #For PostgresSQL only
+    public function getSSLMode(): string
+    {
+        return 'sslmode='.$this->sslmode.';';
+    }
+    
+    public function setCustomString(string $customString): self
+    {
+        #Remove username and password values
+        $customString = preg_replace('/(Password|Pass|PWD|UID|User ID|User|Username)=[^;]+;/miu', '', $customString);
+        $this->customString = $customString;
+        return $this;
+    }
+    
+    public function getCustomString(): string
+    {
+        return $this->customString;
+    }
+    
+    #For IBM only
+    public function getIBM(): string
+    {
+        $dbname = $this->getDB();
+        if (preg_match('/.+\.ini$/ui', $dbname)) {
+            return $dbname;
+        } else {
+            return 'DRIVER={IBM DB2 ODBC DRIVER};DATABASE='.$dbname.';HOSTNAME='.$this->host.';'.(empty($this->port) ? '' : 'PORT='.$this->port.';').'PROTOCOL=TCPIP;';
+        }
+    }
+    
+    #For Informix only
+    public function getInformix(): string
+    {
+        return 'host='.$this->host.';'.(empty($this->port) ? '' : 'service='.$this->port.';').'database='.$this->dbname.';protocol=onsoctcp;EnableScrollableCursors=1;';
+    }
+    
+    #For SQLLite only
+    public function getSQLLite(): string
+    {
+        $dbname = $this->getDB();
+        #Check if we are using in-memory DB
+        if ($dbname === ':memory:') {
+            return $dbname;
+        } else {
+            #Check if it's a file that exists
+            if (is_file($dbname)) {
+                return $dbname;
+            } else {
+                #Assume temporary database
+                return '';
+            }
+        }
+    }
+    
+    #For ODBC only
+    public function getODBC(): string
+    {
+        return $this->dbname ?? '';
+    }
+    
+    #For MS SQL Server only
+    public function getSQLServer() : string
+    {
+        return 'Server='.$this->host.(empty($this->port) ? '' : ','.$this->port).';Database='.$this->dbname;
+    }
 
     public function getDSN(): string
     {
-        if (empty($this->getDB())) {
-            throw new \UnexpectedValueException('No database name is set.');
+        $dsn = match($this->getDriver()) {
+            'mysql' => 'mysql:'.$this->getHost().$this->getDB().$this->getCharset(),
+            'cubrid' => 'cubrid:'.$this->getHost().$this->getDB(),
+            'sybase' => 'sybase:'.$this->getHost().$this->getDB().$this->getCharset().$this->getAppName(),
+            'mssql' => 'mssql:'.$this->getHost().$this->getDB().$this->getCharset().$this->getAppName(),
+            'dblib' => 'dblib:'.$this->getHost().$this->getDB().$this->getCharset().$this->getAppName(),
+            'firebird' => 'firebird:'.$this->getDB().$this->getCharset().$this->getRole().$this->getDialect(),
+            'pgsql' => 'pgsql:'.$this->getHost().$this->getDB().$this->getSSLMode(),
+            'oci' => 'oci:'.$this->getDB().$this->getCharset(),
+            'ibm' => 'ibm:'.$this->getIBM(),
+            'informix' => 'informix:'.$this->getInformix(),
+            'sqlite' => 'sqlite:'.$this->getSQLLite(),
+            'odbc' => 'odbc:'.$this->getODBC(),
+            'sqlsrv' => 'sqlsrv:'.$this->getSQLServer(),
+            default => null,
+        };
+        if ($dsn) {
+            #Return DSN while adding any custom values
+            return $dsn.$this->getCustomString();
         } else {
-            return $this->getDriver().':'.$this->getHost().$this->getDB().$this->getCharset();
+            throw new \UnexpectedValueException('Unsupported driver.');
         }
     }
 
