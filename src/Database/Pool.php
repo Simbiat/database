@@ -51,7 +51,17 @@ final class Pool
                 $try++;
                 try {
                     self::$pool[$id]['connection'] = new \PDO($config->getDSN(), $config->getUser(), $config->getPassword(), $config->getOptions());
+                    #Enforce some attributes. I've noticed that some of them do not apply when used during initial creation. The most frequent culprit is prepare emulation
+                    if ($config->getDriver() === 'mysql') {
+                        self::$pool[$id]['connection']->setAttribute(\PDO::MYSQL_ATTR_MULTI_STATEMENTS, false);
+                        self::$pool[$id]['connection']->setAttribute(\PDO::MYSQL_ATTR_IGNORE_SPACE, true);
+                        self::$pool[$id]['connection']->setAttribute(\PDO::MYSQL_ATTR_DIRECT_QUERY, false);
+                        self::$pool[$id]['connection']->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
+                    } elseif ($config->getDriver() === 'sqlsrv') {
+                        self::$pool[$id]['connection']->setAttribute(\PDO::SQLSRV_ATTR_DIRECT_QUERY, false);
+                    }
                     self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_EMULATE_PREPARES, true);
+                    self::$pool[$id]['connection']->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
                 } catch (\Throwable $exception) {
                     self::$errors[$id] = [
                         'code' => $exception->getCode(),

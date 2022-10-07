@@ -128,7 +128,7 @@ final class Config
         if (
             in_array($option, [\PDO::ATTR_ERRMODE,\PDO::ATTR_EMULATE_PREPARES])
             ||
-            ($this->getDriver() === 'mysql' && in_array($option, [\PDO::MYSQL_ATTR_MULTI_STATEMENTS,\PDO::MYSQL_ATTR_DIRECT_QUERY,\PDO::MYSQL_ATTR_IGNORE_SPACE]))
+            ($this->getDriver() === 'mysql' && in_array($option, [\PDO::MYSQL_ATTR_MULTI_STATEMENTS,\PDO::MYSQL_ATTR_DIRECT_QUERY,\PDO::MYSQL_ATTR_IGNORE_SPACE,\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY]))
             ||
             ($this->getDriver() === 'sqlsrv' && in_array($option, [\PDO::SQLSRV_ATTR_DIRECT_QUERY]))
         ) {
@@ -145,9 +145,12 @@ final class Config
             $this->PDOptions[\PDO::MYSQL_ATTR_MULTI_STATEMENTS] = false;
             $this->PDOptions[\PDO::MYSQL_ATTR_IGNORE_SPACE] = true;
             $this->PDOptions[\PDO::MYSQL_ATTR_DIRECT_QUERY] = false;
+            $this->PDOptions[\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY] = true;
         } elseif ($this->getDriver() === 'sqlsrv') {
             $this->PDOptions[\PDO::SQLSRV_ATTR_DIRECT_QUERY] = false;
         }
+        $this->PDOptions[\PDO::ATTR_EMULATE_PREPARES] = true;
+        $this->PDOptions[\PDO::ATTR_ERRMODE] = \PDO::ERRMODE_EXCEPTION;
         return $this->PDOptions;
     }
 
