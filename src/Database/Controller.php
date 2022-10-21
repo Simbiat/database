@@ -159,7 +159,7 @@ class Controller
                     }
                 }
                 #Initiate transaction, if we are using it
-                if ($transaction) {
+                if ($transaction && $this->dbh->inTransaction()) {
                     $this->dbh->commit();
                 }
                 return true;
