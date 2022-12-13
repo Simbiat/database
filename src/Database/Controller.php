@@ -17,7 +17,8 @@ class Controller
     private int $maxRunTime = 3600; #in seconds
     private int $maxTries = 5;
     private int $sleep = 5; #in seconds
-    private mixed $result = NULL;
+    private mixed $result = null;
+    private null|string|false $lastId = null;
 
     public function __construct()
     {
@@ -35,6 +36,8 @@ class Controller
      */
     public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, int|string|object|null $fetch_argument = NULL, array $ctor_args = [], bool $transaction = true): bool
     {
+        #Reset lastID
+        $this->lastId = null;
         #Check if query string was sent
         if (is_string($queries)) {
             #Convert to array
@@ -157,6 +160,14 @@ class Controller
                     if (!$transaction) {
                         unset($queries[$key]);
                     }
+                }
+                #Try to get last ID (if we had any inserts with auto increment
+                try {
+                    $this->lastId = $this->dbh->lastInsertId();
+                } catch (\Throwable) {
+                    #Either the function is not supported by driver or it requires a sequence name.
+                    #Since this class is meant to be universal, I do not see a good way to support sequence name at the time of writing.
+                    $this->lastId = false;
                 }
                 #Initiate transaction, if we are using it
                 if ($transaction && $this->dbh->inTransaction()) {
@@ -697,6 +708,26 @@ class Controller
             }
             error_log($e->getMessage().$e->getTraceAsString());
             return [];
+        }
+    }
+    
+    #Function useful for inserting into tables with AUTO INCREMENT. If INSERT is successful, and lastId is supported, will return the ID inserted, otherwise will return false
+    public function insertAI(string $query, array $bindings = []): string|false
+    {
+        #Check if query is insert
+        if (preg_match('/^\s*INSERT\s+INTO/ui', $query) !== 1) {
+            throw new \UnexpectedValueException('Query is not INSERT.');
+        }
+        #Check that we have only 1 query
+        $queries = $this->stringToQueries($query);
+        if (count($queries) > 1) {
+            throw new \UnexpectedValueException('String provided seems to contain multiple queries.');
+        }
+        self::$queries++;
+        if ($this->query($query, $bindings)) {
+            return $this->lastId;
+        } else {
+            return false;
         }
     }
 
