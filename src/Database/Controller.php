@@ -236,6 +236,9 @@ class Controller
                     if (is_string($value[0])) {
                         $value[0] = mb_convert_encoding($value[0], 'UTF-8', 'UTF-8');
                     }
+                    if (!isset($value[1]) || !is_string($value[1])) {
+                        $value[1] = '';
+                    }
                     switch (strtolower($value[1])) {
                         case 'date':
                             $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
