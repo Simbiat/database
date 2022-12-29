@@ -197,7 +197,7 @@ class Controller
                     @$sql->closeCursor();
                 }
                 #Set error message
-                if (empty($queries[$currentKey][0])) {
+                if (empty($currentKey) || empty($queries[$currentKey][0])) {
                     $errMessage = 'Failed to start or end transaction';
                 } else {
                     $errMessage = 'Failed to run query `'.$queries[ $currentKey ][0].'`'.(!empty($currentBindings) ? ' with following bindings: '.json_encode($currentBindings) : '');
