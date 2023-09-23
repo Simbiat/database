@@ -25,7 +25,7 @@ final class Config
         \PDO::ATTR_EMULATE_PREPARES => true,
     ];
 
-    public function setUser(string $user): self
+    public function setUser(#[\SensitiveParameter] string $user): self
     {
         if (empty($user)) {
             throw new \InvalidArgumentException('Attempted to set empty user.');
@@ -40,7 +40,7 @@ final class Config
         return (empty($this->user) ? '' : $this->user);
     }
 
-    public function setPassword(string $password = ''): self
+    public function setPassword(#[\SensitiveParameter] string $password = ''): self
     {
         $this->password=$password;
         return $this;
