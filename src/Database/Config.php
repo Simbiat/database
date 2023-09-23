@@ -110,7 +110,7 @@ final class Config
 
     public function setCharset(string $charset): self
     {
-        $this->charset = $charset ?? 'utf8mb4';
+        $this->charset = (empty($charset) ? 'utf8mb4' : $charset);
         return $this;
     }
 
@@ -122,7 +122,7 @@ final class Config
     #For DB-Lib only
     public function setAppName(string $appName): self
     {
-        $this->appName = $appName ?? 'PHP Generic DB-lib';
+        $this->appName = (empty($appName) ? 'PHP Generic DB-lib' : $appName);
         return $this;
     }
     
@@ -135,7 +135,7 @@ final class Config
     #For Firebird only
     public function setRole(string $role): self
     {
-        $this->role = $role ?? null;
+        $this->role = (empty($role) ? null : $role);
         return $this;
     }
     
