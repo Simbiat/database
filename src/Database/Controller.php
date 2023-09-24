@@ -244,6 +244,9 @@ class Controller
                             $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
                             break;
                         case 'time':
+                            $sql->bindValue($binding, $this->time($value[0], 'H:i:s.u'));
+                            break;
+                        case 'datetime':
                             $sql->bindValue($binding, $this->time($value[0]));
                             break;
                         case 'bool':
