@@ -78,7 +78,7 @@ class Controller
         #Check if array of queries is empty
         if (empty($queries)) {
             #Issue a notice
-            trigger_error('No queries were provided to `query()` function', E_USER_NOTICE);
+            trigger_error('No queries were provided to `query()` function');
             #Do not consider this an "error" by default and return `true`
             return true;
         }
@@ -417,7 +417,8 @@ class Controller
             if ($this->isSelect($query) === true) {
                 self::$queries++;
                 if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
-                    return ($this->getResult()[$column] ?? NULL);
+                    #We always need to take 1st element, since our goal is to return only 1 value
+                    return ($this->getResult()[0] ?? NULL);
                 }
             }
         } catch (\Throwable $e) {
@@ -736,8 +737,151 @@ class Controller
             return false;
         }
     }
+    
+    #Function to get list of all tables for schema in order, where first you have tables without dependencies (no foreign keys), and then tables that are dependent on tables
+    #that has come before. This is useful if you want to dump backups in specific order, so that you can then restore the data without disabling foreign keys.
+    #Only for MySQL/MariaDB
+    public function showOrderedTables(string $schema): array
+    {
+        #This is the list of tables, that we will return in the end
+        $tablesOrderedFull = [];
+        #This is the list of the same tables, but where every element is a string of format `schema`.`table`. Used for array search purposes only
+        $tablesNamesOnly = [];
+        #Get all tables except standard system ones and also order them by size
+        $tablesRaw = $this->selectAll('SELECT `TABLE_SCHEMA` as `schema`, `TABLE_NAME` as `table` FROM INFORMATION_SCHEMA.TABLES WHERE `TABLE_SCHEMA` NOT IN (\'information_schema\', \'performance_schema\', \'mysql\', \'sys\', \'test\') ORDER BY (DATA_LENGTH+INDEX_LENGTH);');
+        #Get dependencies
+        foreach ($tablesRaw as $key=>$table) {
+            $table['dependencies'] = $this->selectAllDependencies($table['schema'], $table['table']);
+            if (count($table['dependencies']) === 0) {
+                #Add this to ordered list right away, if we have no dependencies
+                $tablesOrderedFull[] = $table;
+                $tablesNamesOnly[] = '`'.$table['schema'].'`.`'.$table['table'].'`';
+                unset($tablesRaw[$key]);
+            } else {
+                #Update raw list with dependencies to use further
+                $tablesRaw[$key] = $table;
+            }
+        }
+        #Check if we have any cyclic references among the remaining tables
+        if ($this->checkCyclicForeignKeys($tablesRaw)) {
+            #Throw an error, because with cyclic references there is no way to determine the order at all
+            throw new \PDOException('Cyclic foreign key references detected.');
+        }
+        while (count($tablesRaw)>0) {
+            foreach ($tablesRaw as $key=>$table) {
+                #Check if table is all tables from dependencies list is already present in the ordered list
+                foreach ($table['dependencies'] as $dKey=>$dependency) {
+                    #If a dependency is not already present in the list of tables - go to next table
+                    if (!in_array($dependency, $tablesNamesOnly)) {
+                        continue 2;
+                    } else {
+                        #Remove dependency
+                        unset($tablesRaw[$key]['dependencies'][$dKey]);
+                    }
+                }
+                #If we are here, all dependencies are already in the list, so we can add the current table to the list, as well
+                $tablesOrderedFull[] = $table;
+                $tablesNamesOnly[] = '`'.$table['schema'].'`.`'.$table['table'].'`';
+                unset($tablesRaw[$key]);
+            }
+        }
+        return $tablesOrderedFull;
+    }
+    
+    #This function allows you to check for cyclic foreign keys, when 2 (or more) tables depend on each other.
+    #This is considered bad practice even with nullable columns, but you may easily miss them as your database grows, especially if you have chains of 3 or more tables.
+    #This will not return the specific FKs you need to deal with, but rather just list of tables referencing tables, that refer the initial ones.
+    #You will need to analyze the references yourself in order to "untangle" them properly.
+    #You can pass prepared list of tables with format of ['schema' => 'schema_name', 'table' => 'table_name'].
+    #This array can also include key 'dependencies' which should be an array of values like '`schema_name`.`table_name`',
+    #Only for MySQL/MariaDB
+    public function checkCyclicForeignKeys(?array $tables = null): bool
+    {
+        #Unfortunately I was not able to make things work with just 1 query with a recursive sub-query, so doing things in 2 steps.
+        #First step is to get all tables that have FKs, but exclude those that refer themselves
+        if (is_null($tables)) {
+            $tables = $this->selectAll('SELECT `TABLE_SCHEMA` AS `schema`, `TABLE_NAME` AS `table` FROM `information_schema`.`KEY_COLUMN_USAGE` WHERE `REFERENCED_TABLE_SCHEMA` IS NOT NULL AND CONCAT(`REFERENCED_TABLE_SCHEMA`, \'.\', `REFERENCED_TABLE_NAME`) != CONCAT(`TABLE_SCHEMA`, \'.\', `TABLE_NAME`) GROUP BY `TABLE_SCHEMA`, `TABLE_NAME`;');
+        }
+        foreach ($tables as $key=>$table) {
+            #For each table get their recursive list of dependencies, if not set in the prepared array
+            if (!isset($table['dependencies'])) {
+                $table['dependencies'] = $this->selectAllDependencies($table['schema'], $table['table']);
+            }
+            #Check if dependencies list has the table itself
+            if (in_array('`'.$table['schema'].'`.`'.$table['table'].'`', $table['dependencies'])) {
+                #Update the list (only really needed if we did not have prepared list of tables from the start)
+                $tables[$key] = $table;
+            } else {
+                #No cyclic references - remove the table from the list
+                unset($tables[$key]);
+            }
+        }
+        return (count($tables) > 0);
+    }
+    
+    #Function to recursively get all dependencies (foreign keys) of a table.
+    #Only for MySQL/MariaDB
+    public function selectAllDependencies(string $schema, string $table): array
+    {
+        #We are using backticks when comparing the schemas and tables, since that will definitely avoid any matches due to dots in names
+        return $this->selectColumn('
+                 WITH RECURSIVE `DependencyTree` AS (
+                    SELECT
+                        CONCAT(\'`\', `REFERENCED_TABLE_SCHEMA`, \'`.`\', `REFERENCED_TABLE_NAME`, \'`\') AS `dependency`
+                    FROM
+                        `INFORMATION_SCHEMA`.`KEY_COLUMN_USAGE`
+                    WHERE
+                        `TABLE_SCHEMA` = :schema
+                        AND `TABLE_NAME` = :table
+                        AND `REFERENCED_TABLE_NAME` IS NOT NULL
+                        AND CONCAT(\'`\', `TABLE_SCHEMA`, \'`.`\', `TABLE_NAME`, \'`\') != CONCAT(\'`\', `REFERENCED_TABLE_SCHEMA`, \'`.`\', `REFERENCED_TABLE_NAME`, \'`\')
+                    UNION ALL
+                    SELECT
+                        CONCAT(\'`\', `kcu`.`REFERENCED_TABLE_SCHEMA`, \'`.`\', `kcu`.`REFERENCED_TABLE_NAME`, \'`\') AS `dependency`
+                    FROM
+                        `INFORMATION_SCHEMA`.`KEY_COLUMN_USAGE` AS `kcu`
+                    INNER JOIN
+                        `DependencyTree` AS `dt` ON CONCAT(\'`\', `kcu`.`TABLE_SCHEMA`, \'`.`\', `kcu`.`TABLE_NAME`, \'`\') = `dt`.`dependency`
+                    WHERE
+                        `REFERENCED_TABLE_NAME` IS NOT NULL
+                        AND CONCAT(\'`\', `TABLE_SCHEMA`, \'`.`\', `TABLE_NAME`, \'`\') != CONCAT(\'`\', `REFERENCED_TABLE_SCHEMA`, \'`.`\', `REFERENCED_TABLE_NAME`, \'`\')
+                )
+                SELECT DISTINCT `dependency`
+                    FROM `DependencyTree`;',
+            [':schema' => $schema, ':table' => $table]
+        );
+    }
+    
+    #Function to restore ROW_FORMAT value to table definition.
+    #MySQL/MariaDB may now have ROW_FORMAT in SHOW CREATE TABLE output or have a value, which is different from the current one. This function amends that.
+    #Due to SHOW CREATE TABLE being special, we can't use it as sub-query, so need to do 2 queries instead
+    #Only for MySQL/MariaDB
+    public function showCreateTable(string $schema, string $table): ?string
+    {
+        #Get the original create function
+        $create = $this->selectValue('SHOW CREATE TABLE `'.$schema.'`.`'.$table.'`;', [], 1);
+        #Add semicolon for consistency
+        if (!str_ends_with(';', $create)) {
+            $create .= ';';
+        }
+        #Get current ROW_FORMAT value
+        $rowFormat = $this->selectValue('SELECT `ROW_FORMAT` FROM `information_schema`.`TABLES` WHERE `TABLE_SCHEMA`=:schema AND `TABLE_NAME`=:table;', [':schema' => $schema, ':table' => $table]);
+        #Check the value against create statement
+        if (preg_match('/ROW_FORMAT='.$rowFormat.'/ui', $create) !== 1) {
+            #Value differs or missing
+            if (preg_match('/ROW_FORMAT=/ui', $create) === 1) {
+                #If ROW_FORMAT is already present, we need to replace it
+                $create = preg_replace('/ROW_FORMAT=[^ ]+/ui', 'ROW_FORMAT='.$rowFormat.';', $create);
+            } else {
+                #Else we need to add it to the end
+                $create = preg_replace('/;$/ui', ' ROW_FORMAT='.$rowFormat.';', $create);
+            }
+        }
+        #Return result
+        return $create;
+    }
 
-    #Helper function to allow splitting a string into array of queries
+    #Helper function to allow splitting a string into array of queries. Made public, because it may be useful outside this class' functions
     #Regexp taken from https://stackoverflow.com/questions/24423260/split-sql-statements-in-php-on-semicolons-but-not-inside-quotes
     public function stringToQueries(string $string): array
     {
