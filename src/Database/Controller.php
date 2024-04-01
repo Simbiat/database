@@ -7,7 +7,7 @@ use Simbiat\SandClock;
 class Controller
 {
     #List of functions, that may return rows
-    const selects = [
+    const array selects = [
         'SELECT', 'SHOW', 'HANDLER', 'ANALYZE', 'CHECK', 'DESCRIBE', 'DESC', 'EXPLAIN', 'HELP'
     ];
     #Static for convenience, in case object gets destroyed, but you still want to get total number
@@ -22,16 +22,16 @@ class Controller
 
     public function __construct()
     {
-        $this->dbh = (new Pool)->openConnection();
+        $this->dbh = (new Pool)::openConnection();
     }
-
+    
     /**
-     * @param string|array $queries - query/queries to run
-     * @param array $bindings - global bindings, that need to be applied to all queries
-     * @param int $fetch_style - FETCH type used by SELECT queries. Applicable only if 1 query is sent
-     * @param mixed|null $fetch_argument - fetch mode for PDO
-     * @param array $ctor_args - constructorArgs for fetchAll PDO function
-     * @param bool $transaction - flag whether to use TRANSACTION mode. TRUE by default to allow more consistency
+     * @param string|array $queries        - query/queries to run
+     * @param array        $bindings       - global bindings, that need to be applied to all queries
+     * @param int          $fetch_style    - FETCH type used by SELECT queries. Applicable only if 1 query is sent
+     * @param mixed|null   $fetch_argument - fetch mode for PDO
+     * @param array        $ctor_args      - constructorArgs for fetchAll PDO function
+     * @param bool         $transaction    - flag whether to use TRANSACTION mode. TRUE by default to allow more consistency
      * @return bool
      */
     public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, int|string|object|null $fetch_argument = NULL, array $ctor_args = [], bool $transaction = true): bool
@@ -85,11 +85,9 @@ class Controller
         #Flag for SELECT, used as sort of "cache" instead of counting values every time
         $select = false;
         #If we have just 1 query, which is a SELECT - disable transaction
-        if (count($queries) === 1) {
-            if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $queries[0][0]) === 1) {
-                $select = true;
-                $transaction = false;
-            }
+        if ((count($queries) === 1) && preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $queries[0][0]) === 1) {
+            $select = true;
+            $transaction = false;
         }
         #Check if we are running a SELECT
         if (!$select) {
@@ -121,7 +119,7 @@ class Controller
                     }
                     #Bind values, if any
                     if (!empty($query[1])) {
-                        $currentBindings = $query[1];
+                        $currentBindings = $this->cleanBindings($query[0], $query[1]);
                         $sql = $this->binding($sql, $currentBindings);
                     }
                     #Increasing time limit for potentially long operations (like optimize)
@@ -143,7 +141,7 @@ class Controller
                             if (isset($this->result[0])) {
                                 $this->result = $this->result[0];
                             }
-                        } elseif (in_array($fetch_style, [\PDO::FETCH_COLUMN, \PDO::FETCH_FUNC, \PDO::FETCH_INTO])) {
+                        } elseif (in_array($fetch_style, [\PDO::FETCH_COLUMN, \PDO::FETCH_FUNC, \PDO::FETCH_INTO], true)) {
                             $this->result = $sql->fetchAll($fetch_style, $fetch_argument);
                         } elseif ($fetch_style === \PDO::FETCH_CLASS) {
                             $this->result = $sql->fetchAll($fetch_style, $fetch_argument, $ctor_args);
@@ -176,6 +174,8 @@ class Controller
                 return true;
             } catch (\Throwable $e) {
                 $error = $e->getMessage().$e->getTraceAsString();
+                #We can get here without $sql being set, when initiating transaction fails
+                /** @noinspection PhpConditionAlreadyCheckedInspection */
                 if (isset($sql) && $this->debug) {
                     $sql->debugDumpParams();
                     echo $error;
@@ -183,7 +183,9 @@ class Controller
                     flush();
                 }
                 #Check if it's a deadlock. Unbuffered queries are not deadlock, but practice showed, that in some cases this error is thrown when there is a lock on resources, and not really an issue with (un)buffered queries. Retrying may help in those cases.
-                if (isset($sql) && ($sql->errorCode() == '40001' || preg_match('/.*(deadlock|try restarting transaction|Cannot execute queries while other unbuffered queries are active).*/mis', $error) === 1 )) {
+                #We can get here without $sql being set, when initiating transaction fails
+                /** @noinspection PhpConditionAlreadyCheckedInspection */
+                if (isset($sql) && ($sql->errorCode() === '40001' || preg_match('/(deadlock|try restarting transaction|Cannot execute queries while other unbuffered queries are active)/mi', $error) === 1 )) {
                     $deadlock = true;
                     if ($try === $this->maxTries) {
                         error_log($error);
@@ -192,6 +194,8 @@ class Controller
                     $deadlock = false;
                     error_log($error);
                 }
+                #We can get here without $sql being set, when initiating transaction fails
+                /** @noinspection PhpConditionAlreadyCheckedInspection */
                 if (isset($sql)) {
                     #Ensure pointer is closed
                     @$sql->closeCursor();
@@ -200,7 +204,11 @@ class Controller
                 if (empty($currentKey) || empty($queries[$currentKey][0])) {
                     $errMessage = 'Failed to start or end transaction';
                 } else {
-                    $errMessage = 'Failed to run query `'.$queries[ $currentKey ][0].'`'.(!empty($currentBindings) ? ' with following bindings: '.json_encode($currentBindings) : '');
+                    try {
+                        $errMessage = 'Failed to run query `'.$queries[ $currentKey ][0].'`'.(!empty($currentBindings) ? ' with following bindings: '.json_encode($currentBindings, JSON_THROW_ON_ERROR) : '');
+                    } catch (\JsonException) {
+                        $errMessage = 'Failed to run query `'.$queries[ $currentKey ][0].'`'.(!empty($currentBindings) ? ' with following bindings: `Failed to JSON Encode bindings`' : '');
+                    }
                 }
                 if ($this->dbh->inTransaction()) {
                     $this->dbh->rollBack();
@@ -212,14 +220,24 @@ class Controller
                 if ($deadlock) {
                     sleep($this->sleep);
                     continue;
-                } else {
-                    throw new \RuntimeException($errMessage, 0, $e);
                 }
+                throw new \RuntimeException($errMessage, 0, $e);
             }
         } while ($try <= $this->maxTries);
         throw new \RuntimeException('Deadlock encountered for set maximum of '.$this->maxTries.' tries.');
     }
-
+    
+    #Function to clean extra bindings from a list, if they are not present in the query itself
+    private function cleanBindings(string $sql, array $bindings): array
+    {
+        foreach ($bindings as $binding => $value) {
+            if (!str_contains($sql, $binding)) {
+                unset($bindings[$binding]);
+            }
+        }
+        return $bindings;
+    }
+    
     #Function mainly for convenience and some types enforcing, which sometimes 'fail' in PDO itself
     private function binding(\PDOStatement $sql, array $bindings = []): \PDOStatement
     {
@@ -251,7 +269,7 @@ class Controller
                             break;
                         case 'bool':
                         case 'boolean':
-                            $sql->bindValue($binding, boolval($value[0]), \PDO::PARAM_BOOL);
+                            $sql->bindValue($binding, (bool)$value[0], \PDO::PARAM_BOOL);
                             break;
                         case 'null':
                             $sql->bindValue($binding, null, \PDO::PARAM_NULL);
@@ -261,7 +279,7 @@ class Controller
                         case 'number':
                         case 'limit':
                         case 'offset':
-                            $sql->bindValue($binding, intval($value[0]), \PDO::PARAM_INT);
+                            $sql->bindValue($binding, (int)$value[0], \PDO::PARAM_INT);
                             break;
                         case 'str':
                         case 'string':
@@ -269,12 +287,12 @@ class Controller
                         case 'float':
                         case 'varchar':
                         case 'varchar2':
-                            $sql->bindValue($binding, strval($value[0]));
+                            $sql->bindValue($binding, (string)$value[0]);
                             break;
                         case 'match':
                             #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
                             #Trim first
-                            $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', strval($value[0]));
+                            $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', (string)$value[0]);
                             #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
                             $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
                             #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
@@ -319,7 +337,7 @@ class Controller
                             if (is_int($value[1])) {
                                 $sql->bindValue($binding, $value[0], $value[1]);
                             } else {
-                                $sql->bindValue($binding, strval($value[0]));
+                                $sql->bindValue($binding, (string)$value[0]);
                             }
                     }
                 }
@@ -491,12 +509,10 @@ class Controller
                 if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, 0) && is_array($this->getResult())) {
                     if (empty($this->getResult())) {
                         return 0;
-                    } else {
-                        return intval($this->getResult()[0]);
                     }
-                } else {
-                    return 0;
+                    return (int)$this->getResult()[0];
                 }
+                return 0;
             } catch (\Throwable $e) {
                 if ($this->debug) {
                     throw new \RuntimeException('Failed to count rows', 0, $e);
@@ -599,33 +615,29 @@ class Controller
         #Building query
         if ($joinTable === '') {
             $query = 'SELECT '.(empty($extraColumns) ? '' : implode(', ', $extraColumns).', ').'`'.$table.'`.`'.$columnName.'` AS `value`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
-        } else {
-            #Check for proper JOIN type
-            if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $joinType) === 1) {
-                #Check if we have a setup to return after JOIN
-                if (empty($joinReturn)) {
-                    throw new \UnexpectedValueException('No value to return after JOIN was provided.');
-                }
-                #Check of we have a column to join on. If not - set its name to the name of original column
-                if (empty($joinOn)) {
-                    $joinOn = $columnName;
-                }
-                if ($altJoin === false) {
-                    $query = 'SELECT '.$joinReturn.' AS `value`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
-                } else {
-                    $query = 'SELECT '.$joinReturn.' AS `value`, `count` FROM (SELECT '.(empty($extraColumns) ? '' : implode(', ', $extraColumns).', ').'`'.$table.'`.`'.$columnName.'`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`'.$table.'`.`'.$columnName.'` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit).') `tempresult` INNER JOIN `'.$joinTable.'` ON `tempresult`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` ORDER BY `count` '.$order;
-                }
-            } else {
-                throw new \UnexpectedValueException('Unsupported type of JOIN ('.$joinType.') was provided.');
+        } elseif (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $joinType) === 1) {
+            #Check if we have a setup to return after JOIN
+            if (empty($joinReturn)) {
+                throw new \UnexpectedValueException('No value to return after JOIN was provided.');
             }
+            #Check of we have a column to join on. If not - set its name to the name of original column
+            if (empty($joinOn)) {
+                $joinOn = $columnName;
+            }
+            if ($altJoin === false) {
+                $query = 'SELECT '.$joinReturn.' AS `value`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+            } else {
+                $query = 'SELECT '.$joinReturn.' AS `value`, `count` FROM (SELECT '.(empty($extraColumns) ? '' : implode(', ', $extraColumns).', ').'`'.$table.'`.`'.$columnName.'`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`'.$table.'`.`'.$columnName.'` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit).') `tempresult` INNER JOIN `'.$joinTable.'` ON `tempresult`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` ORDER BY `count` '.$order;
+            }
+        } else {
+            throw new \UnexpectedValueException('Unsupported type of JOIN ('.$joinType.') was provided.');
         }
         self::$queries++;
         try {
             if ($this->query($query) && is_array($this->getResult())) {
                 return $this->getResult();
-            } else {
-                return [];
             }
+            return [];
         } catch (\Throwable $e) {
             if ($this->debug) {
                 throw new \RuntimeException('Failed to count unique values', 0, $e);
@@ -681,34 +693,30 @@ class Controller
         $bindings = [];
         foreach ($values as $key=>$value) {
             $sumFields[] = 'SUM(IF(`'.$table.'`.`'.$columnName.'` = :'.$key.', 1, 0)) AS `'.$names[$key].'`';
-            $bindings[':'.$key] = strval($value);
+            $bindings[':'.$key] = (string)$value;
         }
         #Building query
         if ($joinTable === '') {
             $query = 'SELECT '.implode(', ', $sumFields).' FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'1 ORDER BY 1 '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
-        } else {
-            #Check for proper JOIN type
-            if (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $joinType) === 1) {
-                #Check if we have a setup to return after JOIN
-                if (empty($joinReturn)) {
-                    throw new \UnexpectedValueException('No value to return after JOIN was provided.');
-                }
-                #Check of we have a column to join on. If not - set its name to the name of original column
-                if (empty($joinOn)) {
-                    $joinOn = $columnName;
-                }
-                $query = 'SELECT '.$joinReturn.', '.implode(', ', $sumFields).' FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'1 ORDER BY 1 '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
-            } else {
-                throw new \UnexpectedValueException('Unsupported type of JOIN ('.$joinType.') was provided.');
+        } elseif (preg_match('/(NATURAL )?((INNER|CROSS)|((LEFT|RIGHT)$)|(((LEFT|RIGHT)\s*)?OUTER))/mi', $joinType) === 1) {
+            #Check if we have a setup to return after JOIN
+            if (empty($joinReturn)) {
+                throw new \UnexpectedValueException('No value to return after JOIN was provided.');
             }
+            #Check of we have a column to join on. If not - set its name to the name of original column
+            if (empty($joinOn)) {
+                $joinOn = $columnName;
+            }
+            $query = 'SELECT '.$joinReturn.', '.implode(', ', $sumFields).' FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'1 ORDER BY 1 '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
+        } else {
+            throw new \UnexpectedValueException('Unsupported type of JOIN ('.$joinType.') was provided.');
         }
         self::$queries++;
         try {
             if ($this->query($query, $bindings) && is_array($this->getResult())) {
                 return $this->getResult();
-            } else {
-                return [];
             }
+            return [];
         } catch (\Throwable $e) {
             if ($this->debug) {
                 throw new \RuntimeException('Failed to sum unique values', 0, $e);
@@ -733,22 +741,21 @@ class Controller
         self::$queries++;
         if ($this->query($query, $bindings)) {
             return $this->lastId;
-        } else {
-            return false;
         }
+        return false;
     }
     
     #Function to get list of all tables for schema in order, where first you have tables without dependencies (no foreign keys), and then tables that are dependent on tables
     #that has come before. This is useful if you want to dump backups in specific order, so that you can then restore the data without disabling foreign keys.
     #Only for MySQL/MariaDB
-    public function showOrderedTables(string $schema): array
+    public function showOrderedTables(string $schema = ''): array
     {
         #This is the list of tables, that we will return in the end
         $tablesOrderedFull = [];
         #This is the list of the same tables, but where every element is a string of format `schema`.`table`. Used for array search purposes only
         $tablesNamesOnly = [];
         #Get all tables except standard system ones and also order them by size
-        $tablesRaw = $this->selectAll('SELECT `TABLE_SCHEMA` as `schema`, `TABLE_NAME` as `table` FROM INFORMATION_SCHEMA.TABLES WHERE `TABLE_SCHEMA` NOT IN (\'information_schema\', \'performance_schema\', \'mysql\', \'sys\', \'test\') ORDER BY (DATA_LENGTH+INDEX_LENGTH);');
+        $tablesRaw = $this->selectAll('SELECT `TABLE_SCHEMA` as `schema`, `TABLE_NAME` as `table` FROM INFORMATION_SCHEMA.TABLES WHERE `TABLE_SCHEMA` NOT IN (\'information_schema\', \'performance_schema\', \'mysql\', \'sys\', \'test\')'.(empty($schema) ? '' : ' AND `TABLE_SCHEMA`=:schema').' ORDER BY (DATA_LENGTH+INDEX_LENGTH);', (empty($schema) ? [] : [':schema' => [$schema, 'string']]));
         #Get dependencies
         foreach ($tablesRaw as $key=>$table) {
             $table['dependencies'] = $this->selectAllDependencies($table['schema'], $table['table']);
@@ -772,12 +779,11 @@ class Controller
                 #Check if table is all tables from dependencies list is already present in the ordered list
                 foreach ($table['dependencies'] as $dKey=>$dependency) {
                     #If a dependency is not already present in the list of tables - go to next table
-                    if (!in_array($dependency, $tablesNamesOnly)) {
+                    if (!in_array($dependency, $tablesNamesOnly, true)) {
                         continue 2;
-                    } else {
-                        #Remove dependency
-                        unset($tablesRaw[$key]['dependencies'][$dKey]);
                     }
+                    #Remove dependency
+                    unset($tablesRaw[$key]['dependencies'][$dKey]);
                 }
                 #If we are here, all dependencies are already in the list, so we can add the current table to the list, as well
                 $tablesOrderedFull[] = $table;
@@ -808,7 +814,7 @@ class Controller
                 $table['dependencies'] = $this->selectAllDependencies($table['schema'], $table['table']);
             }
             #Check if dependencies list has the table itself
-            if (in_array('`'.$table['schema'].'`.`'.$table['table'].'`', $table['dependencies'])) {
+            if (in_array('`'.$table['schema'].'`.`'.$table['table'].'`', $table['dependencies'], true)) {
                 #Update the list (only really needed if we did not have prepared list of tables from the start)
                 $tables[$key] = $table;
             } else {
@@ -874,7 +880,7 @@ class Controller
                 $create = preg_replace('/ROW_FORMAT=[^ ]+/ui', 'ROW_FORMAT='.$rowFormat.';', $create);
             } else {
                 #Else we need to add it to the end
-                $create = preg_replace('/;$/ui', ' ROW_FORMAT='.$rowFormat.';', $create);
+                $create = preg_replace('/;$/u', ' ROW_FORMAT='.$rowFormat.';', $create);
             }
         }
         #Return result
@@ -893,9 +899,8 @@ class Controller
     {
         if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
             return true;
-        } else {
-            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
         }
+        throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
     }
 
     #####################
