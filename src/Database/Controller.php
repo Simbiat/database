@@ -246,18 +246,18 @@ class Controller
                 if (!is_array($value)) {
                     #Handle malformed UTF
                     if (is_string($value)) {
-                        $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+                        $value = mb_scrub($value, 'UTF-8');
                     }
                     $sql->bindValue($binding, $value);
                 } else {
                     #Handle malformed UTF
                     if (is_string($value[0])) {
-                        $value[0] = mb_convert_encoding($value[0], 'UTF-8', 'UTF-8');
+                        $value[0] = mb_scrub($value[0], 'UTF-8');
                     }
                     if (!isset($value[1]) || !is_string($value[1])) {
                         $value[1] = '';
                     }
-                    switch (strtolower($value[1])) {
+                    switch (mb_strtolower($value[1], 'UTF-8')) {
                         case 'date':
                             $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
                             break;
@@ -306,11 +306,11 @@ class Controller
                             #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
                             $newValue = preg_replace('/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u', '', $newValue);
                             #Remove all double quotes if the count is not even
-                            if (substr_count($newValue, '"') % 2 !== 0) {
+                            if (mb_substr_count($newValue, '"', 'UTF-8') % 2 !== 0) {
                                 $newValue = preg_replace('/"/u', '', $newValue);
                             }
                             #Remove all parenthesis if count of closing does not match count of opening ones
-                            if (substr_count($newValue, '(') !== substr_count($newValue, ')')) {
+                            if (mb_substr_count($newValue, '(', 'UTF-8') !== mb_substr_count($newValue, ')', 'UTF-8')) {
                                 $newValue = preg_replace('/[()]/u', '', $newValue);
                             }
                             #Remove all operators, that can only precede a text and that do not have text after them (at the end of string). Do this for any possible combinations
@@ -331,7 +331,7 @@ class Controller
                         case 'large':
                         case 'object':
                         case 'blob':
-                            $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
+                            $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, mb_strlen($value[0], 'UTF-8'));
                             break;
                         default:
                             if (is_int($value[1])) {

@@ -8,36 +8,35 @@ final class Pool
     public static ?\PDO $activeConnection = NULL;
     public static ?array $errors = NULL;
 
-    public static function openConnection(Config $config = NULL, string $id = NULL, int $maxTries = 1): ?\PDO
+    public static function openConnection(?Config $config = NULL, int|string|null $id = NULL, int $maxTries = 1): ?\PDO
     {
         if ($maxTries < 1) {
             $maxTries = 1;
         }
-        if (empty($config) && empty($id)) {
+        if ($config === null && empty($id)) {
             if (empty(self::$pool)) {
                 throw new \UnexpectedValueException('Neither Simbiat\\Database\\Config or ID was provided and there are no connections in pool to work with.');
-            } else {
-                if (empty(self::$activeConnection)) {
-                    reset(self::$pool);
-                    if (isset(self::$pool[key(self::$pool)]['connection']) && !empty(self::$pool[key(self::$pool)]['connection'])) {
-                        self::$activeConnection = self::$pool[key(self::$pool)]['connection'];
-                    } else {
-                        throw new \UnexpectedValueException('Failed to connect to database server.');
-                    }
-                }
-                return self::$activeConnection;
             }
-        } elseif (!empty($config)) {
+            if (empty(self::$activeConnection)) {
+                reset(self::$pool);
+                if (isset(self::$pool[key(self::$pool)]['connection']) && !empty(self::$pool[key(self::$pool)]['connection'])) {
+                    self::$activeConnection = self::$pool[key(self::$pool)]['connection'];
+                } else {
+                    throw new \UnexpectedValueException('Failed to connect to database server.');
+                }
+            }
+            return self::$activeConnection;
+        }
+        if ($config !== null) {
             #Force 'restricted' options to ensure identical set of options
             $config->getOptions();
             foreach(self::$pool as $key=>$connection) {
-                if ($connection['config'] == $config) {
+                if ($connection['config'] === $config) {
                     if (isset($connection['connection'])) {
                         self::$activeConnection = self::$pool[$key]['connection'];
                         return self::$pool[$key]['connection'];
-                    } else {
-                        $id = $key;
                     }
+                    $id = $key;
                 }
             }
             if (empty($id)) {
@@ -77,34 +76,34 @@ final class Pool
             } while ($try <= $maxTries);
             self::$activeConnection = self::$pool[$id]['connection'];
             return self::$activeConnection;
-        } elseif (!empty($id)) {
+        }
+        if (!empty($id)) {
             if (isset(self::$pool[$id]['connection'])) {
                 throw new \UnexpectedValueException('No connection with ID `'.$id.'` found.');
-            } else {
-                self::$activeConnection = self::$pool[$id]['connection'];
-                return self::$activeConnection;
             }
+            self::$activeConnection = self::$pool[$id]['connection'];
+            return self::$activeConnection;
         }
         return NULL;
     }
 
-    public static function closeConnection(Config $config = NULL, string $id = NULL): void
+    public static function closeConnection(?Config $config = NULL, ?string $id = NULL): void
     {
         if (!empty($id)) {
             unset(self::$pool[$id]);
         }
-        if (!empty($config)) {
+        if ($config !== null) {
             #force restricted options to ensure identical set of options
             $config->getOptions();
             foreach(self::$pool as $key=>$connection) {
-                if ($connection['config'] == $config) {
+                if ($connection['config'] === $config) {
                     unset(self::$pool[$key]['connection']);
                 }
             }
         }
     }
 
-    public static function changeConnection(Config $config = NULL, string $id = NULL): ?\PDO
+    public static function changeConnection(?Config $config = NULL, ?string $id = NULL): ?\PDO
     {
         return self::openConnection($config, $id);
     }

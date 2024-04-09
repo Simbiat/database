@@ -29,9 +29,8 @@ final class Config
     {
         if (empty($user)) {
             throw new \InvalidArgumentException('Attempted to set empty user.');
-        } else {
-            $this->user=$user;
         }
+        $this->user=$user;
         return $this;
     }
 
@@ -52,9 +51,8 @@ final class Config
         $caller = debug_backtrace();
         if (empty($caller[1])) {
             throw new \RuntimeException('Direct call detected. Access denied.');
-        } else {
-            $caller = $caller[1];
         }
+        $caller = $caller[1];
         if ($caller['function'] !== 'openConnection' || $caller['class'] !== 'Simbiat\\Database\\Pool') {
             throw new \RuntimeException('Call from non-allowed function or object-type detected. Access denied.');
         }
@@ -64,7 +62,7 @@ final class Config
     public function setHost(string $host = 'localhost', int $port = NULL, string $socket = NULL): self
     {
         $this->host=(empty($host) ? 'localhost' : $host);
-        $this->port=($port<1 ? NULL : ($port>65535 ? NULL : $port));
+        $this->port=($port<1 || $port>65535 ? NULL : $port);
         $this->socket=$socket;
         return $this;
     }
@@ -73,14 +71,13 @@ final class Config
     {
         if (empty($this->socket)) {
             return 'host='.$this->host.';'.(empty($this->port) ? '' : 'port='.$this->port.';');
-        } else {
-            return 'unix_socket='.$this->socket.';';
         }
+        return 'unix_socket='.$this->socket.';';
     }
 
     public function setDriver(string $driver = 'mysql'): self
     {
-        if (in_array($driver, \PDO::getAvailableDrivers())) {
+        if (in_array($driver, \PDO::getAvailableDrivers(), true)) {
             $this->driver=$driver;
         } else {
             throw new \InvalidArgumentException('Attempted to set unsupported driver.');
@@ -97,9 +94,8 @@ final class Config
     {
         if (empty($dbname)) {
             throw new \InvalidArgumentException('Attempted to set empty database name.');
-        } else {
-            $this->dbname=$dbname;
         }
+        $this->dbname=$dbname;
         return $this;
     }
 
@@ -196,9 +192,8 @@ final class Config
         $dbname = $this->getDB();
         if (preg_match('/.+\.ini$/ui', $dbname)) {
             return $dbname;
-        } else {
-            return 'DRIVER={IBM DB2 ODBC DRIVER};DATABASE='.$dbname.';HOSTNAME='.$this->host.';'.(empty($this->port) ? '' : 'PORT='.$this->port.';').'PROTOCOL=TCPIP;';
         }
+        return 'DRIVER={IBM DB2 ODBC DRIVER};DATABASE='.$dbname.';HOSTNAME='.$this->host.';'.(empty($this->port) ? '' : 'PORT='.$this->port.';').'PROTOCOL=TCPIP;';
     }
     
     #For Informix only
@@ -214,15 +209,13 @@ final class Config
         #Check if we are using in-memory DB
         if ($dbname === ':memory:') {
             return $dbname;
-        } else {
-            #Check if it's a file that exists
-            if (is_file($dbname)) {
-                return $dbname;
-            } else {
-                #Assume temporary database
-                return '';
-            }
         }
+        #Check if it's a file that exists
+        if (is_file($dbname)) {
+            return $dbname;
+        }
+        #Assume temporary database
+        return '';
     }
     
     #For ODBC only
@@ -258,24 +251,22 @@ final class Config
         if ($dsn) {
             #Return DSN while adding any custom values
             return $dsn.$this->getCustomString();
-        } else {
-            throw new \UnexpectedValueException('Unsupported driver.');
         }
+        throw new \UnexpectedValueException('Unsupported driver.');
     }
 
     public function setOption(int $option, mixed $value): self
     {
         if (
-            in_array($option, [\PDO::ATTR_ERRMODE,\PDO::ATTR_EMULATE_PREPARES])
+            in_array($option, [\PDO::ATTR_ERRMODE, \PDO::ATTR_EMULATE_PREPARES], true)
             ||
-            ($this->getDriver() === 'mysql' && in_array($option, [\PDO::MYSQL_ATTR_MULTI_STATEMENTS,\PDO::MYSQL_ATTR_DIRECT_QUERY,\PDO::MYSQL_ATTR_IGNORE_SPACE,\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY]))
+            ($this->getDriver() === 'sqlsrv' && $option === \PDO::SQLSRV_ATTR_DIRECT_QUERY)
             ||
-            ($this->getDriver() === 'sqlsrv' && in_array($option, [\PDO::SQLSRV_ATTR_DIRECT_QUERY]))
+            ($this->getDriver() === 'mysql' && in_array($option, [\PDO::MYSQL_ATTR_MULTI_STATEMENTS, \PDO::MYSQL_ATTR_DIRECT_QUERY, \PDO::MYSQL_ATTR_IGNORE_SPACE, \PDO::MYSQL_ATTR_USE_BUFFERED_QUERY], true))
         ) {
             throw new \InvalidArgumentException('Attempted to set restricted attribute.');
-        } else {
-            $this->PDOptions[$option] = $value;
         }
+        $this->PDOptions[$option] = $value;
         return $this;
     }
 
