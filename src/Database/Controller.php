@@ -65,7 +65,7 @@ class Controller
         if (count($queries) > 1) {
             foreach ($queries as $key=>$query) {
                 #Check if query is SELECT
-                if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query[0]) === 1) {
+                if ($this->isSelect($query[0], false)) {
                     unset($queries[$key]);
                     continue;
                 }
@@ -366,7 +366,7 @@ class Controller
     public function selectAll(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
     {
         try {
-            if ($this->isSelect($query) === true) {
+            if ($this->isSelect($query)) {
                 self::$queries++;
                 if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult())) {
                     return $this->getResult();
@@ -385,7 +385,7 @@ class Controller
     public function selectRow(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
     {
         try {
-            if ($this->isSelect($query) === true) {
+            if ($this->isSelect($query)) {
                 #Check if the query has a limit (any limit)
                 if (preg_match('/\s*LIMIT\s+(\d+\s*,\s*)?\d+\s*;?\s*$/ui', $query) !== 1) {
                     #If it does not - add it. But first we need to remove the final semicolon if any
@@ -413,7 +413,7 @@ class Controller
     public function selectColumn(string $query, array $bindings = [], int $column = 0): array
     {
         try {
-            if ($this->isSelect($query) === true) {
+            if ($this->isSelect($query)) {
                 self::$queries++;
                 if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
                     return $this->getResult();
@@ -432,7 +432,7 @@ class Controller
     public function selectValue(string $query, array $bindings = [], int $column = 0)
     {
         try {
-            if ($this->isSelect($query) === true) {
+            if ($this->isSelect($query)) {
                 self::$queries++;
                 if ($this->query($query, $bindings, \PDO::FETCH_COLUMN, $column) && is_array($this->getResult())) {
                     #We always need to take 1st element, since our goal is to return only 1 value
@@ -452,7 +452,7 @@ class Controller
     public function selectPair(string $query, array $bindings = [], int $column = 0): array
     {
         try {
-            if ($this->isSelect($query) === true) {
+            if ($this->isSelect($query)) {
                 self::$queries++;
                 if ($this->query($query, $bindings, \PDO::FETCH_KEY_PAIR, $column) && is_array($this->getResult())) {
                     return $this->getResult();
@@ -471,7 +471,7 @@ class Controller
     public function selectUnique(string $query, array $bindings = [], int $column = 0): array
     {
         try {
-            if ($this->isSelect($query) === true) {
+            if ($this->isSelect($query)) {
                 self::$queries++;
                 if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
                     return $this->getResult();
@@ -529,7 +529,7 @@ class Controller
     public function check(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): bool
     {
         try {
-            if ($this->isSelect($query) === true) {
+            if ($this->isSelect($query)) {
                 self::$queries++;
                 if ($this->query($query, $bindings, $fetchMode) && is_array($this->getResult()) && !empty($this->getResult())) {
                     return true;
@@ -895,12 +895,15 @@ class Controller
     }
 
     #Helper function to check if query is a select(able) one
-    private function isSelect(string $query): bool
+    private function isSelect(string $query, bool $throw = true): bool
     {
-        if (preg_match('/^\s*\(*'.implode('|', self::selects).'/mi', $query) === 1) {
+        if (preg_match('/^\s*(\(\s*)*('.implode('|', self::selects).')/mi', $query) === 1) {
             return true;
         }
-        throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
+        if ($throw) {
+            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
+        }
+        return false;
     }
 
     #####################
