@@ -1,37 +1,63 @@
 <?php
-declare(strict_types=1);
+declare(strict_types = 1);
+
 namespace Simbiat\Database;
 
 use Simbiat\SandClock;
 
+use function is_string, count, in_array, is_array;
+
+/**
+ * Query the database
+ */
 class Controller
 {
     #List of functions, that may return rows
-    const array selects = [
+    public const array selects = [
         'SELECT', 'SHOW', 'HANDLER', 'ANALYZE', 'CHECK', 'DESCRIBE', 'DESC', 'EXPLAIN', 'HELP'
     ];
-    #Static for convenience, in case object gets destroyed, but you still want to get total number
+    /**
+     * @var int Number of queries ran. Static for convenience, in case object gets destroyed, but you still want to get total number
+     */
     public static int $queries = 0;
     private ?\PDO $dbh;
-    private bool $debug = false;
+    /**
+     * @var bool Debug mode
+     */
+    public bool $debug = false;
+    /**
+     * @var int Maximum time (in seconds) for the query (for `set_time_limit`)
+     */
     private int $maxRunTime = 3600; #in seconds
+    /**
+     * @var int Number of times to retry in case of deadlock
+     */
     private int $maxTries = 5;
-    private int $sleep = 5; #in seconds
+    /**
+     * @var int Time (in seconds) to wait between retries in case of deadlock
+     */
+    private int $sleep = 5;
+    /**
+     * @var mixed Result of the last query
+     */
     private mixed $result = null;
     private null|string|false $lastId = null;
-
+    
     public function __construct()
     {
-        $this->dbh = (new Pool)::openConnection();
+        $this->dbh = Pool::openConnection();
     }
     
     /**
+     * Run SQL query
+     *
      * @param string|array $queries        - query/queries to run
      * @param array        $bindings       - global bindings, that need to be applied to all queries
      * @param int          $fetch_style    - FETCH type used by SELECT queries. Applicable only if 1 query is sent
      * @param mixed|null   $fetch_argument - fetch mode for PDO
      * @param array        $ctor_args      - constructorArgs for fetchAll PDO function
      * @param bool         $transaction    - flag whether to use TRANSACTION mode. TRUE by default to allow more consistency
+     *
      * @return bool
      */
     public function query(string|array $queries, array $bindings = [], int $fetch_style = \PDO::FETCH_ASSOC, int|string|object|null $fetch_argument = NULL, array $ctor_args = [], bool $transaction = true): bool
@@ -46,7 +72,7 @@ class Controller
             #Ensure integer keys
             $queries = array_values($queries);
             #Iterrate over array to merge binding
-            foreach ($queries as $key=>$query) {
+            foreach ($queries as $key => $query) {
                 #Ensure integer keys
                 if (is_string($query)) {
                     $query = [0 => $query, 1 => []];
@@ -63,7 +89,7 @@ class Controller
         }
         #Remove any SELECT queries and comments if more than 1 query is sent
         if (count($queries) > 1) {
-            foreach ($queries as $key=>$query) {
+            foreach ($queries as $key => $query) {
                 #Check if query is SELECT
                 if ($this->isSelect($query[0], false)) {
                     unset($queries[$key]);
@@ -97,6 +123,8 @@ class Controller
         #Set counter for tries
         $try = 0;
         do {
+            #Suppressing because we want to standardize error handling for this part
+            /** @noinspection BadExceptionsProcessingInspection */
             try {
                 #Indicate actual try
                 $try++;
@@ -105,7 +133,7 @@ class Controller
                     $this->dbh->beginTransaction();
                 }
                 #Loop through queries
-                foreach ($queries as $key=>$query) {
+                foreach ($queries as $key => $query) {
                     #Reset variables
                     $sql = null;
                     $currentBindings = null;
@@ -155,6 +183,8 @@ class Controller
                     #Explicitely close pointer to release resources
                     $sql->closeCursor();
                     #Remove the query from the bulk, if not using transaction mode, to avoid repeating of commands
+                    #Not sure why PHP Storm complains about this line
+                    /** @noinspection PhpConditionAlreadyCheckedInspection */
                     if (!$transaction) {
                         unset($queries[$key]);
                     }
@@ -173,41 +203,41 @@ class Controller
                 }
                 return true;
             } catch (\Throwable $e) {
-                $error = $e->getMessage().$e->getTraceAsString();
+                $errMessage = $e->getMessage().$e->getTraceAsString();
                 #We can get here without $sql being set, when initiating transaction fails
                 /** @noinspection PhpConditionAlreadyCheckedInspection */
                 if (isset($sql) && $this->debug) {
                     $sql->debugDumpParams();
-                    echo $error;
+                    echo $errMessage;
                     ob_flush();
                     flush();
                 }
                 #Check if it's a deadlock. Unbuffered queries are not deadlock, but practice showed, that in some cases this error is thrown when there is a lock on resources, and not really an issue with (un)buffered queries. Retrying may help in those cases.
                 #We can get here without $sql being set, when initiating transaction fails
                 /** @noinspection PhpConditionAlreadyCheckedInspection */
-                if (isset($sql) && ($sql->errorCode() === '40001' || preg_match('/(deadlock|try restarting transaction|Cannot execute queries while other unbuffered queries are active)/mi', $error) === 1 )) {
+                if (isset($sql) && ($sql->errorCode() === '40001' || preg_match('/(deadlock|try restarting transaction|Cannot execute queries while other unbuffered queries are active)/mi', $error) === 1)) {
                     $deadlock = true;
-                    if ($try === $this->maxTries) {
-                        error_log($error);
-                    }
                 } else {
                     $deadlock = false;
-                    error_log($error);
+                    #Set error message
+                    if (empty($currentKey) || empty($queries[$currentKey][0])) {
+                        $errMessage = 'Failed to start or end transaction';
+                    } else {
+                        try {
+                            $errMessage = 'Failed to run query `'.$queries[$currentKey][0].'`'.(!empty($currentBindings) ? ' with following bindings: '.json_encode($currentBindings, JSON_THROW_ON_ERROR) : '');
+                        } catch (\JsonException) {
+                            $errMessage = 'Failed to run query `'.$queries[$currentKey][0].'`'.(!empty($currentBindings) ? ' with following bindings: `Failed to JSON Encode bindings`' : '');
+                        }
+                    }
                 }
                 #We can get here without $sql being set, when initiating transaction fails
                 /** @noinspection PhpConditionAlreadyCheckedInspection */
                 if (isset($sql)) {
                     #Ensure pointer is closed
-                    @$sql->closeCursor();
-                }
-                #Set error message
-                if (empty($currentKey) || empty($queries[$currentKey][0])) {
-                    $errMessage = 'Failed to start or end transaction';
-                } else {
                     try {
-                        $errMessage = 'Failed to run query `'.$queries[ $currentKey ][0].'`'.(!empty($currentBindings) ? ' with following bindings: '.json_encode($currentBindings, JSON_THROW_ON_ERROR) : '');
-                    } catch (\JsonException) {
-                        $errMessage = 'Failed to run query `'.$queries[ $currentKey ][0].'`'.(!empty($currentBindings) ? ' with following bindings: `Failed to JSON Encode bindings`' : '');
+                        $sql->closeCursor();
+                    } catch (\Throwable) {
+                        #Do nothing, most likely fails due to non-existent cursor.
                     }
                 }
                 if ($this->dbh->inTransaction()) {
@@ -227,7 +257,13 @@ class Controller
         throw new \RuntimeException('Deadlock encountered for set maximum of '.$this->maxTries.' tries.');
     }
     
-    #Function to clean extra bindings from a list, if they are not present in the query itself
+    /**
+     * Function to clean extra bindings from a list, if they are not present in the query itself
+     * @param string $sql      Query to process
+     * @param array  $bindings List of bindings
+     *
+     * @return array
+     */
     private function cleanBindings(string $sql, array $bindings): array
     {
         foreach ($bindings as $binding => $value) {
@@ -238,18 +274,18 @@ class Controller
         return $bindings;
     }
     
-    #Function mainly for convenience and some types enforcing, which sometimes 'fail' in PDO itself
+    /**
+     * Function mainly for convenience and some types enforcing, which sometimes 'fail' in PDO itself
+     * @param \PDOStatement $sql      Query to process
+     * @param array         $bindings List of bindings
+     *
+     * @return \PDOStatement
+     */
     private function binding(\PDOStatement $sql, array $bindings = []): \PDOStatement
     {
         try {
             foreach ($bindings as $binding => $value) {
-                if (!is_array($value)) {
-                    #Handle malformed UTF
-                    if (is_string($value)) {
-                        $value = mb_scrub($value, 'UTF-8');
-                    }
-                    $sql->bindValue($binding, $value);
-                } else {
+                if (is_array($value)) {
                     #Handle malformed UTF
                     if (is_string($value[0])) {
                         $value[0] = mb_scrub($value[0], 'UTF-8');
@@ -259,13 +295,13 @@ class Controller
                     }
                     switch (mb_strtolower($value[1], 'UTF-8')) {
                         case 'date':
-                            $sql->bindValue($binding, $this->time($value[0], 'Y-m-d'));
+                            $sql->bindValue($binding, SandClock::format($value[0], 'Y-m-d'));
                             break;
                         case 'time':
-                            $sql->bindValue($binding, $this->time($value[0], 'H:i:s.u'));
+                            $sql->bindValue($binding, SandClock::format($value[0], 'H:i:s.u'));
                             break;
                         case 'datetime':
-                            $sql->bindValue($binding, $this->time($value[0]));
+                            $sql->bindValue($binding, SandClock::format($value[0]));
                             break;
                         case 'bool':
                         case 'boolean':
@@ -291,37 +327,7 @@ class Controller
                             break;
                         case 'match':
                             #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
-                            #Trim first
-                            $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', (string)$value[0]);
-                            #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
-                            $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
-                            #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
-                            $newValue = preg_replace('/(?<!^| )[+\-<>~]/u', '', $newValue);
-                            #Remove all double quotes and asterisks, that are not preceded by either beginning of string, letter, number or space
-                            $newValue = preg_replace('/(?<![\p{L}\p{N}_ ]|^)[*"]/u', '', $newValue);
-                            #Remove all double quotes and asterisks, that are inside text
-                            $newValue = preg_replace('/([\p{L}\p{N}_])([*"])([\p{L}\p{N}_])/u', '', $newValue);
-                            #Remove all opening parenthesis which are not preceded by beginning of string or space
-                            $newValue = preg_replace('/(?<!^| )\(/u', '', $newValue);
-                            #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
-                            $newValue = preg_replace('/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u', '', $newValue);
-                            #Remove all double quotes if the count is not even
-                            if (mb_substr_count($newValue, '"', 'UTF-8') % 2 !== 0) {
-                                $newValue = preg_replace('/"/u', '', $newValue);
-                            }
-                            #Remove all parenthesis if count of closing does not match count of opening ones
-                            if (mb_substr_count($newValue, '(', 'UTF-8') !== mb_substr_count($newValue, ')', 'UTF-8')) {
-                                $newValue = preg_replace('/[()]/u', '', $newValue);
-                            }
-                            #Remove all operators, that can only precede a text and that do not have text after them (at the end of string). Do this for any possible combinations
-                            $newValue = preg_replace('/[+\-<>~]+$/u', '', $newValue);
-                            #Remove asterisk operator at the beginning of string
-                            $newValue = preg_replace('/^\*/u', '', $newValue);
-                            #Check if the new value is just the set of operators and if it is - set the value to an empty string
-                            if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
-                                $newValue = '';
-                            }
-                            $sql->bindValue($binding, $newValue);
+                            $sql->bindValue($binding, $this->match((string)$value[0]));
                             break;
                         case 'like':
                             #Same as string, but wrapped in % for LIKE '%string%'
@@ -334,12 +340,18 @@ class Controller
                             $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, mb_strlen($value[0], 'UTF-8'));
                             break;
                         default:
-                            if (is_int($value[1])) {
+                            if (\is_int($value[1])) {
                                 $sql->bindValue($binding, $value[0], $value[1]);
                             } else {
                                 $sql->bindValue($binding, (string)$value[0]);
                             }
                     }
+                } else {
+                    #Handle malformed UTF
+                    if (is_string($value)) {
+                        $value = mb_scrub($value, 'UTF-8');
+                    }
+                    $sql->bindValue($binding, $value);
                 }
             }
         } catch (\Throwable $exception) {
@@ -353,16 +365,59 @@ class Controller
         }
         return $sql;
     }
-
-    private function time(string|float|int $time = 0, string $format = 'Y-m-d H:i:s.u'): string
+    
+    /** Helper function to prepare string binding for MATCH in FULLTEXT search
+     * @param string $string
+     *
+     * @return string
+     */
+    private function match(string $string): string
     {
-        return SandClock::format($time, $format);
+        #Trim first
+        $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', $string);
+        #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
+        $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
+        #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
+        $newValue = preg_replace('/(?<!^| )[+\-<>~]/u', '', $newValue);
+        #Remove all double quotes and asterisks, that are not preceded by either beginning of string, letter, number or space
+        $newValue = preg_replace('/(?<![\p{L}\p{N}_ ]|^)[*"]/u', '', $newValue);
+        #Remove all double quotes and asterisks, that are inside text
+        $newValue = preg_replace('/([\p{L}\p{N}_])([*"])([\p{L}\p{N}_])/u', '', $newValue);
+        #Remove all opening parenthesis which are not preceded by beginning of string or space
+        $newValue = preg_replace('/(?<!^| )\(/u', '', $newValue);
+        #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
+        $newValue = preg_replace('/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u', '', $newValue);
+        #Remove all double quotes if the count is not even
+        if (mb_substr_count($newValue, '"', 'UTF-8') % 2 !== 0) {
+            $newValue = preg_replace('/"/u', '', $newValue);
+        }
+        #Remove all parenthesis if count of closing does not match count of opening ones
+        if (mb_substr_count($newValue, '(', 'UTF-8') !== mb_substr_count($newValue, ')', 'UTF-8')) {
+            $newValue = preg_replace('/[()]/u', '', $newValue);
+        }
+        #Remove all operators, that can only precede a text and that do not have text after them (at the end of string). Do this for any possible combinations
+        $newValue = preg_replace('/[+\-<>~]+$/u', '', $newValue);
+        #Remove asterisk operator at the beginning of string
+        $newValue = preg_replace('/^\*/u', '', $newValue);
+        #Check if the new value is just the set of operators and if it is - set the value to an empty string
+        if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
+            $newValue = '';
+        }
+        return $newValue;
     }
-
+    
     ##########################
     #Useful semantic wrappers#
     ##########################
-    #Return full results as multidimensional array (associative by default).
+    /**
+     * Return full results as multidimensional array (associative by default).
+     *
+     * @param string $query     Query to run
+     * @param array  $bindings  List of bindings
+     * @param int    $fetchMode Fetch mode
+     *
+     * @return array
+     */
     public function selectAll(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
     {
         try {
@@ -373,15 +428,20 @@ class Controller
                 }
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to select rows', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
+            throw new \RuntimeException('Failed to select rows with `'.$e->getMessage().'`', 0, $e);
         }
         return [];
     }
-
-    #Returns only 1 row from SELECT (essentially LIMIT 1).
+    
+    /**
+     * Returns only 1 row from SELECT (essentially LIMIT 1).
+     *
+     * @param string $query     Query to run
+     * @param array  $bindings  List of bindings
+     * @param int    $fetchMode Fetch mode
+     *
+     * @return array
+     */
     public function selectRow(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): array
     {
         try {
@@ -401,15 +461,19 @@ class Controller
                 }
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to select row', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
+            throw new \RuntimeException('Failed to select row with `'.$e->getMessage().'`', 0, $e);
         }
         return [];
     }
-
-    #Returns column (first by default) even if original SELECT requests for more. Change 3rd parameter accordingly to use another column as key (starting from 0).
+    
+    /**
+     * Returns column (first by default) even if original SELECT requests for more. Change 3rd parameter accordingly to use another column as key (starting from 0).
+     * @param string $query    Query to run
+     * @param array  $bindings List of bindings
+     * @param int    $column   Number of the column to select
+     *
+     * @return array
+     */
     public function selectColumn(string $query, array $bindings = [], int $column = 0): array
     {
         try {
@@ -420,16 +484,20 @@ class Controller
                 }
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to select column', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
+            throw new \RuntimeException('Failed to select column with `'.$e->getMessage().'`', 0, $e);
         }
         return [];
     }
-
-    #Returns a value directly, instead of array containing that value. Useful for getting specific settings from DB. No return typing, since it may vary, so be careful with that.
-    public function selectValue(string $query, array $bindings = [], int $column = 0)
+    
+    /**
+     * Returns a value directly, instead of array containing that value. Useful for getting specific settings from DB. No return typing, since it may vary, so be careful with that.
+     * @param string $query    Query to run
+     * @param array  $bindings List of bindings
+     * @param int    $column   Number of the column to select
+     *
+     * @return mixed|null
+     */
+    public function selectValue(string $query, array $bindings = [], int $column = 0): mixed
     {
         try {
             if ($this->isSelect($query)) {
@@ -440,15 +508,19 @@ class Controller
                 }
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to select value', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
+            throw new \RuntimeException('Failed to select value with `'.$e->getMessage().'`', 0, $e);
         }
         return NULL;
     }
-
-    #Returns key->value pair(s) based on 2 columns. First column (by default) is used as key. Change 3rd parameter accordingly to use another column as key (starting from 0).
+    
+    /**
+     * Returns key->value pair(s) based on 2 columns. First column (by default) is used as key. Change 3rd parameter accordingly to use another column as key (starting from 0).
+     * @param string $query    Query to run
+     * @param array  $bindings List of bindings
+     * @param int    $column   Number of the column to select
+     *
+     * @return array
+     */
     public function selectPair(string $query, array $bindings = [], int $column = 0): array
     {
         try {
@@ -459,48 +531,58 @@ class Controller
                 }
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to select pairs', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
+            throw new \RuntimeException('Failed to select pairs with `'.$e->getMessage().'`', 0, $e);
         }
         return [];
     }
-
-    #Returns unique values from a column (first by default). Change 3rd parameter accordingly to use another column as key (starting from 0).
+    
+    /**
+     * Returns unique values from a column (first by default). Change 3rd parameter accordingly to use another column as key (starting from 0).
+     * @param string $query    Query to run
+     * @param array  $bindings List of bindings
+     * @param int    $column   Number of the column to select
+     *
+     * @return array
+     */
     public function selectUnique(string $query, array $bindings = [], int $column = 0): array
     {
         try {
             if ($this->isSelect($query)) {
                 self::$queries++;
-                if ($this->query($query, $bindings, \PDO::FETCH_COLUMN|\PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
+                if ($this->query($query, $bindings, \PDO::FETCH_COLUMN | \PDO::FETCH_UNIQUE, $column) && is_array($this->getResult())) {
                     return $this->getResult();
                 }
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to select unique rows', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
+            throw new \RuntimeException('Failed to select unique rows with `'.$e->getMessage().'`', 0, $e);
         }
         return [];
     }
-
-    #Select random row from table
+    
+    /**
+     * Select random row(s) or value(s) from table
+     * @param string $table  Table to select from
+     * @param string $column Optional column, if you want to select only 1 column
+     * @param int    $number Maximum number of rows to select
+     *
+     * @return array
+     */
     public function selectRandom(string $table, string $column = '', int $number = 1): array
     {
         try {
-            return $this->selectAll('SELECT ' . (empty($column) ? '*' : '`' . $column . '`') . ' FROM `' . $table . '` ORDER BY RAND() LIMIT :number;', [':number' => [(max($number, 1)), 'int']]);
+            return $this->selectAll('SELECT '.(empty($column) ? '*' : '`'.$column.'`').' FROM `'.$table.'` ORDER BY RAND() LIMIT :number;', [':number' => [(max($number, 1)), 'int']]);
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to select random rows', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
-            return [];
+            throw new \RuntimeException('Failed to select random rows with `'.$e->getMessage().'`', 0, $e);
         }
     }
-
-    #Returns count value from SELECT.
+    
+    /**
+     * Returns count value from SELECT.
+     * @param string $query    `SELECT COUNT()` query. It can have other columns, but they will be ignored.
+     * @param array  $bindings List of bindings.
+     *
+     * @return int
+     */
     public function count(string $query, array $bindings = []): int
     {
         if (preg_match('/^\s*SELECT COUNT/mi', $query) === 1) {
@@ -514,18 +596,21 @@ class Controller
                 }
                 return 0;
             } catch (\Throwable $e) {
-                if ($this->debug) {
-                    throw new \RuntimeException('Failed to count rows', 0, $e);
-                }
-                error_log($e->getMessage().$e->getTraceAsString());
-                return 0;
+                throw new \RuntimeException('Failed to count rows with `'.$e->getMessage().'`', 0, $e);
             }
         } else {
             throw new \UnexpectedValueException('Query is not SELECT COUNT.');
         }
     }
-
-    #Returns boolean value indicating, if anything matching SELECT exists.
+    
+    /**
+     * Returns boolean value indicating, if anything matching SELECT exists.
+     * @param string $query     Query to run
+     * @param array  $bindings  List of bindings
+     * @param int    $fetchMode Fetch mode
+     *
+     * @return bool
+     */
     public function check(string $query, array $bindings = [], int $fetchMode = \PDO::FETCH_ASSOC): bool
     {
         try {
@@ -536,16 +621,18 @@ class Controller
                 }
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to check if value exists', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
-            return false;
+            throw new \RuntimeException('Failed to check if value exists with `'.$e->getMessage().'`', 0, $e);
         }
         return false;
     }
-
-    #Check if a table exists
+    
+    /**
+     * Check if table exists
+     * @param string $table  Table name
+     * @param string $schema Optional (but recommended) schema name
+     *
+     * @return bool
+     */
     public function checkTable(string $table, string $schema = ''): bool
     {
         try {
@@ -559,15 +646,18 @@ class Controller
             }
             return $this->check($query, $bindings);
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to check if table exists', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
-            return false;
+            throw new \RuntimeException('Failed to check if table exists with `'.$e->getMessage().'`', 0, $e);
         }
     }
-
-    #Check if a column exists in a table
+    
+    /**
+     * Check if a column exists in a table
+     * @param string $table  Table name
+     * @param string $column Column to check
+     * @param string $schema Optional (but recommended) schema name
+     *
+     * @return bool
+     */
     public function checkColumn(string $table, string $column, string $schema = ''): bool
     {
         try {
@@ -581,27 +671,27 @@ class Controller
             }
             return $this->check($query, $bindings);
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to check if column exists', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
-            return false;
+            throw new \RuntimeException('Failed to check if column exists with `'.$e->getMessage().'`', 0, $e);
         }
     }
-
-    #Returns array of counts  for each unique value in column. Does not use bindings, so be careful not to process user input directly.
-    #$table - table name to count in
-    #$columnName - column to count
-    #$where - optional WHERE condition. Full notations (`table`.`column`) are advised.
-    #$joinTable - optional table to JOIN with
-    #$joinType - type of JOIN to use
-    #$joinOn - column to JOIN on (defaults to the same column name we are counting).
-    #$joinReturn - mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
-    #$order - DESC or ASC order the output by `count`
-    #$limit - optional limit of the output
-    #$extraGroup - optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
-    #$altJoin - apply JOIN logic AFTER the original COUNT. In some cases this may provide significant performance improvement, since we will be JOINing only the result, not the whole table. This approach is disabled by default, because depending on what is sent in $joinReturn and $extraGroup it may easily fail or provide unexpected results.
-    #$extraColumns - optional list of additional columns to return on initial SELECT. May sometimes help with errors in case of $altJoin. If this is used you can use `tempresult` in $joinReturn.
+    
+    /**
+     * Returns array of counts  for each unique value in column. Does not use bindings, so be careful not to process user input directly.
+     * @param string $table        Table name to count in
+     * @param string $columnName   Column to count
+     * @param string $where        Optional WHERE condition. Full notations (`table`.`column`) are advised.
+     * @param string $joinTable    Optional table to JOIN with
+     * @param string $joinType     Type of JOIN to use (`INNER` by default)
+     * @param string $joinOn       Column to JOIN on (defaults to the same column name we are counting)
+     * @param string $joinReturn   Mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
+     * @param string $order        DESC (default) or ASC order the output by `count`
+     * @param int    $limit        Optional limit of the output
+     * @param array  $extraGroup   Optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
+     * @param bool   $altJoin      Apply JOIN logic AFTER the original COUNT. In some cases this may provide significant performance improvement, since we will be JOINing only the result, not the whole table. This approach is disabled by default, because depending on what is sent in $joinReturn and $extraGroup it may easily fail or provide unexpected results.
+     * @param array  $extraColumns Optional list of additional columns to return on initial SELECT. May sometimes help with errors in case of $altJoin. If this is used you can use `tempresult` in $joinReturn.
+     *
+     * @return array
+     */
     public function countUnique(string $table, string $columnName, string $where = '', string $joinTable = '', string $joinType = 'INNER', string $joinOn = '', string $joinReturn = '', string $order = 'DESC', int $limit = 0, array $extraGroup = [], bool $altJoin = false, array $extraColumns = []): array
     {
         #Prevent negative LIMIT
@@ -624,10 +714,10 @@ class Controller
             if (empty($joinOn)) {
                 $joinOn = $columnName;
             }
-            if ($altJoin === false) {
-                $query = 'SELECT '.$joinReturn.' AS `value`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
-            } else {
+            if ($altJoin) {
                 $query = 'SELECT '.$joinReturn.' AS `value`, `count` FROM (SELECT '.(empty($extraColumns) ? '' : implode(', ', $extraColumns).', ').'`'.$table.'`.`'.$columnName.'`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`'.$table.'`.`'.$columnName.'` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit).') `tempresult` INNER JOIN `'.$joinTable.'` ON `tempresult`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` ORDER BY `count` '.$order;
+            } else {
+                $query = 'SELECT '.$joinReturn.' AS `value`, count(`'.$table.'`.`'.$columnName.'`) AS `count` FROM `'.$table.'` INNER JOIN `'.$joinTable.'` ON `'.$table.'`.`'.$columnName.'`=`'.$joinTable.'`.`'.$joinOn.'` '.($where === '' ? '' : 'WHERE '.$where.' ').'GROUP BY '.(empty($extraGroup) ? '' : implode(', ', $extraGroup).', ').'`value` ORDER BY `count` '.$order.($limit === 0 ? '' : ' LIMIT '.$limit);
             }
         } else {
             throw new \UnexpectedValueException('Unsupported type of JOIN ('.$joinType.') was provided.');
@@ -639,27 +729,27 @@ class Controller
             }
             return [];
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to count unique values', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
-            return [];
+            throw new \RuntimeException('Failed to count unique values with `'.$e->getMessage().'`', 0, $e);
         }
     }
-
-    #Similar to countUnique, but utilizes SUM based on comparison of the column's values against the list provided. Each `value` will be present in a separate column. In some cases your results will look like transposed countUnique, but in other cases this can provide some more flexibility in terms of how to structure them.
-    #$table - table name to count in
-    #$columnName - column to count
-    #$values - list of values to check for. Defaults to 0 and 1 (boolean)
-    #$names - list of names for resulting columns. Defaults to `false` and `true`
-    #$where - optional WHERE condition. Full notations (`table`.`column`) are advised.
-    #$joinTable - optional table to JOIN with
-    #$joinType - type of JOIN to use
-    #$joinOn - column to JOIN on (defaults to the same column name we are counting).
-    #$joinReturn - mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
-    #$order - DESC or ASC order the output by 1 (that is 1st column in SELECT)
-    #$limit - optional limit of the output
-    #$extraGroup - optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
+    
+    /**
+     * Similar to countUnique, but utilizes SUM based on comparison of the column's values against the list provided. Each `value` will be present in a separate column. In some cases your results will look like transposed countUnique, but in other cases this can provide some more flexibility in terms of how to structure them.
+     * @param string $table      Table name to count in
+     * @param string $columnName Column to count
+     * @param array  $values     List of values to check for. Defaults to 0 and 1 (boolean)
+     * @param array  $names      List of names for resulting columns. Defaults to `false` and `true`
+     * @param string $where      Optional WHERE condition. Full notations (`table`.`column`) are advised.
+     * @param string $joinTable  Optional table to JOIN with
+     * @param string $joinType   Type of JOIN to use (`INNER` by default)
+     * @param string $joinOn     Column to JOIN on (defaults to the same column name we are counting).
+     * @param string $joinReturn Mandatory in case we use JOIN. If it's not set we do not know what to GROUP by but the original column, doing which with a JOIN will make no sense, since JOIN will be useful only to, for example, replace IDs with respective names. Full notations (`table`.`column`) are advised.
+     * @param string $order      DESC (default) or ASC order the output by 1st column
+     * @param int    $limit      Optional limit of the output
+     * @param array  $extraGroup Optional list (array) of column names to GROUP by BEFORE the original $columnName or $joinReturn. Full notations (`table`.`column`) are advised.
+     *
+     * @return array
+     */
     public function sumUnique(string $table, string $columnName, array $values = [], array $names = [], string $where = '', string $joinTable = '', string $joinType = 'INNER', string $joinOn = '', string $joinReturn = '', string $order = 'DESC', int $limit = 0, array $extraGroup = []): array
     {
         #Default $values
@@ -691,7 +781,7 @@ class Controller
         #Build conditional fields
         $sumFields = [];
         $bindings = [];
-        foreach ($values as $key=>$value) {
+        foreach ($values as $key => $value) {
             $sumFields[] = 'SUM(IF(`'.$table.'`.`'.$columnName.'` = :'.$key.', 1, 0)) AS `'.$names[$key].'`';
             $bindings[':'.$key] = (string)$value;
         }
@@ -718,15 +808,17 @@ class Controller
             }
             return [];
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                throw new \RuntimeException('Failed to sum unique values', 0, $e);
-            }
-            error_log($e->getMessage().$e->getTraceAsString());
-            return [];
+            throw new \RuntimeException('Failed to sum unique values with `'.$e->getMessage().'`', 0, $e);
         }
     }
     
-    #Function useful for inserting into tables with AUTO INCREMENT. If INSERT is successful, and lastId is supported, will return the ID inserted, otherwise will return false
+    /**
+     * Function useful for inserting into tables with AUTO INCREMENT. If INSERT is successful, and lastId is supported, will return the ID inserted, otherwise will return false
+     * @param string $query    `INSERT` query to process
+     * @param array  $bindings List of bindings
+     *
+     * @return string|false
+     */
     public function insertAI(string $query, array $bindings = []): string|false
     {
         #Check if query is insert
@@ -745,9 +837,14 @@ class Controller
         return false;
     }
     
-    #Function to get list of all tables for schema in order, where first you have tables without dependencies (no foreign keys), and then tables that are dependent on tables
-    #that has come before. This is useful if you want to dump backups in specific order, so that you can then restore the data without disabling foreign keys.
-    #Only for MySQL/MariaDB
+    /**
+     * Function to get list of all tables for schema in order, where first you have tables without dependencies (no foreign keys), and then tables that are dependent on tables that has come before. This is useful if you want to dump backups in specific order, so that you can then restore the data without disabling foreign keys.
+     * Only for MySQL/MariaDB
+     *
+     * @param string $schema Optional name of the schema to limit to
+     *
+     * @return array
+     */
     public function showOrderedTables(string $schema = ''): array
     {
         #This is the list of tables, that we will return in the end
@@ -757,7 +854,7 @@ class Controller
         #Get all tables except standard system ones and also order them by size
         $tablesRaw = $this->selectAll('SELECT `TABLE_SCHEMA` as `schema`, `TABLE_NAME` as `table` FROM INFORMATION_SCHEMA.TABLES WHERE `TABLE_SCHEMA` NOT IN (\'information_schema\', \'performance_schema\', \'mysql\', \'sys\', \'test\')'.(empty($schema) ? '' : ' AND `TABLE_SCHEMA`=:schema').' ORDER BY (DATA_LENGTH+INDEX_LENGTH);', (empty($schema) ? [] : [':schema' => [$schema, 'string']]));
         #Get dependencies
-        foreach ($tablesRaw as $key=>$table) {
+        foreach ($tablesRaw as $key => $table) {
             $table['dependencies'] = $this->selectAllDependencies($table['schema'], $table['table']);
             if (count($table['dependencies']) === 0) {
                 #Add this to ordered list right away, if we have no dependencies
@@ -774,10 +871,10 @@ class Controller
             #Throw an error, because with cyclic references there is no way to determine the order at all
             throw new \PDOException('Cyclic foreign key references detected.');
         }
-        while (count($tablesRaw)>0) {
-            foreach ($tablesRaw as $key=>$table) {
+        while (count($tablesRaw) > 0) {
+            foreach ($tablesRaw as $key => $table) {
                 #Check if table is all tables from dependencies list is already present in the ordered list
-                foreach ($table['dependencies'] as $dKey=>$dependency) {
+                foreach ($table['dependencies'] as $dKey => $dependency) {
                     #If a dependency is not already present in the list of tables - go to next table
                     if (!in_array($dependency, $tablesNamesOnly, true)) {
                         continue 2;
@@ -794,21 +891,27 @@ class Controller
         return $tablesOrderedFull;
     }
     
-    #This function allows you to check for cyclic foreign keys, when 2 (or more) tables depend on each other.
-    #This is considered bad practice even with nullable columns, but you may easily miss them as your database grows, especially if you have chains of 3 or more tables.
-    #This will not return the specific FKs you need to deal with, but rather just list of tables referencing tables, that refer the initial ones.
-    #You will need to analyze the references yourself in order to "untangle" them properly.
-    #You can pass prepared list of tables with format of ['schema' => 'schema_name', 'table' => 'table_name'].
-    #This array can also include key 'dependencies' which should be an array of values like '`schema_name`.`table_name`',
-    #Only for MySQL/MariaDB
+    /**
+     * This function allows you to check for cyclic foreign keys, when 2 (or more) tables depend on each other.
+     * This is considered bad practice even with nullable columns, but you may easily miss them as your database grows, especially if you have chains of 3 or more tables.
+     * This will not return the specific FKs you need to deal with, but rather just list of tables referencing tables, that refer the initial ones.
+     * You will need to analyze the references yourself in order to "untangle" them properly.
+     * You can pass prepared list of tables with format of ['schema' => 'schema_name', 'table' => 'table_name'].
+     * This array can also include key 'dependencies' which should be an array of values like '`schema_name`.`table_name`',
+     * Only for MySQL/MariaDB
+     *
+     * @param array|null $tables Optional list of tables in `schema.table` format. If none is provided, will first get list of all tables available.
+     *
+     * @return bool
+     */
     public function checkCyclicForeignKeys(?array $tables = null): bool
     {
         #Unfortunately I was not able to make things work with just 1 query with a recursive sub-query, so doing things in 2 steps.
         #First step is to get all tables that have FKs, but exclude those that refer themselves
-        if (is_null($tables)) {
+        if ($tables === null) {
             $tables = $this->selectAll('SELECT `TABLE_SCHEMA` AS `schema`, `TABLE_NAME` AS `table` FROM `information_schema`.`KEY_COLUMN_USAGE` WHERE `REFERENCED_TABLE_SCHEMA` IS NOT NULL AND CONCAT(`REFERENCED_TABLE_SCHEMA`, \'.\', `REFERENCED_TABLE_NAME`) != CONCAT(`TABLE_SCHEMA`, \'.\', `TABLE_NAME`) GROUP BY `TABLE_SCHEMA`, `TABLE_NAME`;');
         }
-        foreach ($tables as $key=>$table) {
+        foreach ($tables as $key => $table) {
             #For each table get their recursive list of dependencies, if not set in the prepared array
             if (!isset($table['dependencies'])) {
                 $table['dependencies'] = $this->selectAllDependencies($table['schema'], $table['table']);
@@ -825,8 +928,15 @@ class Controller
         return (count($tables) > 0);
     }
     
-    #Function to recursively get all dependencies (foreign keys) of a table.
-    #Only for MySQL/MariaDB
+    /**
+     * Function to recursively get all dependencies (foreign keys) of a table.
+     * Only for MySQL/MariaDB
+     *
+     * @param string $schema Schema name
+     * @param string $table  Table name
+     *
+     * @return array
+     */
     public function selectAllDependencies(string $schema, string $table): array
     {
         #We are using backticks when comparing the schemas and tables, since that will definitely avoid any matches due to dots in names
@@ -858,10 +968,17 @@ class Controller
         );
     }
     
-    #Function to restore ROW_FORMAT value to table definition.
-    #MySQL/MariaDB may now have ROW_FORMAT in SHOW CREATE TABLE output or have a value, which is different from the current one. This function amends that.
-    #Due to SHOW CREATE TABLE being special, we can't use it as sub-query, so need to do 2 queries instead
-    #Only for MySQL/MariaDB
+    /**
+     * Function to restore ROW_FORMAT value to table definition.
+     * MySQL/MariaDB may now have ROW_FORMAT in SHOW CREATE TABLE output or have a value, which is different from the current one. This function amends that.
+     * Due to SHOW CREATE TABLE being special, we can't use it as sub-query, so need to do 2 queries instead.
+     * Only for MySQL/MariaDB
+     *
+     * @param string $schema Schema name
+     * @param string $table  Table name
+     *
+     * @return string|null
+     */
     public function showCreateTable(string $schema, string $table): ?string
     {
         #Get the original create function
@@ -886,15 +1003,27 @@ class Controller
         #Return result
         return $create;
     }
-
-    #Helper function to allow splitting a string into array of queries. Made public, because it may be useful outside this class' functions
-    #Regexp taken from https://stackoverflow.com/questions/24423260/split-sql-statements-in-php-on-semicolons-but-not-inside-quotes
+    
+    /**
+     * Helper function to allow splitting a string into array of queries. Made public, because it may be useful outside this class' functions.
+     * Regexp taken from https://stackoverflow.com/questions/24423260/split-sql-statements-in-php-on-semicolons-but-not-inside-quotes
+     *
+     * @param string $string
+     *
+     * @return array
+     */
     public function stringToQueries(string $string): array
     {
         return preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?! *$)~', $string);
     }
-
-    #Helper function to check if query is a select(able) one
+    
+    /**
+     * Helper function to check if query is a select(able) one
+     * @param string $query Query to check
+     * @param bool   $throw Throw exception if not `SELECT` and this option is `true`.
+     *
+     * @return bool
+     */
     private function isSelect(string $query, bool $throw = true): bool
     {
         if (preg_match('/^\s*(\(\s*)*('.implode('|', self::selects).')/mi', $query) === 1) {
@@ -905,55 +1034,12 @@ class Controller
         }
         return false;
     }
-
-    #####################
-    #Setters and getters#
-    #####################
-    public function getMaxTime(): int
-    {
-        return $this->maxRunTime;
-    }
-
-    public function setMaxTime(int $seconds): self
-    {
-        $this->maxRunTime = $seconds;
-        return $this;
-    }
-
-    public function getDebug(): bool
-    {
-        return $this->debug;
-    }
-
-    public function setDebug(bool $debug): self
-    {
-        $this->debug = $debug;
-        return $this;
-    }
-
-    public function getTries(): int
-    {
-        return $this->maxTries;
-    }
-
-    public function setTries(int $tries): self
-    {
-        $this->maxTries = abs($tries);
-        return $this;
-    }
-
-    public function getSleep(): int
-    {
-        return $this->sleep;
-    }
-
-    public function setSleep(int $sleep): self
-    {
-        $this->sleep = abs($sleep);
-        return $this;
-    }
-
-    public function getResult()
+    
+    /**
+     * Return result. Used to prevent modification of the results from outside.
+     * @return mixed|null
+     */
+    public function getResult(): mixed
     {
         return $this->result;
     }

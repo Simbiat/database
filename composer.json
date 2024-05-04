@@ -1,7 +1,11 @@
 {
     "name": "simbiat/database",
     "type": "library",
-    "keywords": ["database","php","pdo"],
+    "keywords": [
+        "database",
+        "php",
+        "pdo"
+    ],
     "description": "Set of classes for database pool and helper.",
     "homepage": "https://github.com/Simbiat/database",
     "license": "AGPL-3.0-or-later",
@@ -23,8 +27,8 @@
             "Simbiat\\": "src/"
         }
     },
-	"support": {
-		"issues": "https://github.com/Simbiat/database/issues",
-		"source": "https://github.com/Simbiat/database"
-	}
+    "support": {
+        "issues": "https://github.com/Simbiat/database/issues",
+        "source": "https://github.com/Simbiat/database"
+    }
 }
