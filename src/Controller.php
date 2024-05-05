@@ -215,7 +215,7 @@ class Controller
                 #Check if it's a deadlock. Unbuffered queries are not deadlock, but practice showed, that in some cases this error is thrown when there is a lock on resources, and not really an issue with (un)buffered queries. Retrying may help in those cases.
                 #We can get here without $sql being set, when initiating transaction fails
                 /** @noinspection PhpConditionAlreadyCheckedInspection */
-                if (isset($sql) && ($sql->errorCode() === '40001' || preg_match('/(deadlock|try restarting transaction|Cannot execute queries while other unbuffered queries are active)/mi', $error) === 1)) {
+                if (isset($sql) && ($sql->errorCode() === '40001' || preg_match('/(deadlock|try restarting transaction|Cannot execute queries while other unbuffered queries are active)/mi', $errMessage) === 1)) {
                     $deadlock = true;
                 } else {
                     $deadlock = false;

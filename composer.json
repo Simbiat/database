@@ -24,7 +24,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Simbiat\\": "src/"
+            "Simbiat\\Database\\": "src/"
         }
     },
     "support": {
