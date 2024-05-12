@@ -66,7 +66,7 @@ class Controller
         $this->lastId = null;
         #Check if query string was sent
         if (is_string($queries)) {
-            if (preg_match('/^\s*$/mi', $queries) === 1) {
+            if (preg_match('/^\s*$/i', $queries) === 1) {
                 throw new \UnexpectedValueException('Query is an empty string.');
             }
             #Convert to array
@@ -86,7 +86,7 @@ class Controller
                     #Exit earlier for speed
                     throw new \UnexpectedValueException('Query #'.$key.' is not a string.');
                 } else {
-                    if (preg_match('/^\s*$/mi', $queries[$key][0]) === 1) {
+                    if (preg_match('/^\s*$/i', $queries[$key][0]) === 1) {
                         throw new \UnexpectedValueException('Query #'.$key.' is an empty string.');
                     }
                 }
