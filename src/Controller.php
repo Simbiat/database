@@ -66,6 +66,9 @@ class Controller
         $this->lastId = null;
         #Check if query string was sent
         if (is_string($queries)) {
+            if (preg_match('/^\s*$/mi', $queries) === 1) {
+                throw new \UnexpectedValueException('Query is an empty string.');
+            }
             #Convert to array
             $queries = [[$queries, $bindings]];
         } else {
@@ -82,6 +85,10 @@ class Controller
                 if (!is_string($queries[$key][0])) {
                     #Exit earlier for speed
                     throw new \UnexpectedValueException('Query #'.$key.' is not a string.');
+                } else {
+                    if (preg_match('/^\s*$/mi', $queries[$key][0]) === 1) {
+                        throw new \UnexpectedValueException('Query #'.$key.' is an empty string.');
+                    }
                 }
                 #Merge bindings
                 $queries[$key][1] = array_merge($queries[$key][1] ?? [], $bindings);
@@ -220,7 +227,7 @@ class Controller
                 } else {
                     $deadlock = false;
                     #Set error message
-                    if (empty($currentKey) || empty($queries[$currentKey][0])) {
+                    if (!isset($currentKey)) {
                         $errMessage = 'Failed to start or end transaction';
                     } else {
                         try {
