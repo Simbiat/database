@@ -344,7 +344,7 @@ class Controller
                         case 'large':
                         case 'object':
                         case 'blob':
-                            $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, mb_strlen($value[0], 'UTF-8'));
+                            $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
                             break;
                         default:
                             if (\is_int($value[1])) {
