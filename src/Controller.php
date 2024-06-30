@@ -3,6 +3,7 @@ declare(strict_types = 1);
 
 namespace Simbiat\Database;
 
+use Simbiat\CuteBytes;
 use Simbiat\SandClock;
 
 use function is_string, count, in_array, is_array;
@@ -66,7 +67,7 @@ class Controller
         $this->lastId = null;
         #Check if query string was sent
         if (is_string($queries)) {
-            if (preg_match('/^\s*$/i', $queries) === 1) {
+            if (preg_match('/^\s*$/', $queries) === 1) {
                 throw new \UnexpectedValueException('Query is an empty string.');
             }
             #Convert to array
@@ -85,10 +86,9 @@ class Controller
                 if (!is_string($queries[$key][0])) {
                     #Exit earlier for speed
                     throw new \UnexpectedValueException('Query #'.$key.' is not a string.');
-                } else {
-                    if (preg_match('/^\s*$/i', $queries[$key][0]) === 1) {
-                        throw new \UnexpectedValueException('Query #'.$key.' is an empty string.');
-                    }
+                }
+                if (preg_match('/^\s*$/', $queries[$key][0]) === 1) {
+                    throw new \UnexpectedValueException('Query #'.$key.' is an empty string.');
                 }
                 #Merge bindings
                 $queries[$key][1] = array_merge($queries[$key][1] ?? [], $bindings);
@@ -227,14 +227,14 @@ class Controller
                 } else {
                     $deadlock = false;
                     #Set error message
-                    if (!isset($currentKey)) {
-                        $errMessage = 'Failed to start or end transaction';
-                    } else {
+                    if (isset($currentKey)) {
                         try {
                             $errMessage = 'Failed to run query `'.$queries[$currentKey][0].'`'.(!empty($currentBindings) ? ' with following bindings: '.json_encode($currentBindings, JSON_THROW_ON_ERROR) : '');
                         } catch (\JsonException) {
                             $errMessage = 'Failed to run query `'.$queries[$currentKey][0].'`'.(!empty($currentBindings) ? ' with following bindings: `Failed to JSON Encode bindings`' : '');
                         }
+                    } else {
+                        $errMessage = 'Failed to start or end transaction';
                     }
                 }
                 #We can get here without $sql being set, when initiating transaction fails
@@ -332,6 +332,14 @@ class Controller
                         case 'varchar2':
                             $sql->bindValue($binding, (string)$value[0]);
                             break;
+                        case 'bytes':
+                        case 'bits':
+                            if (method_exists(CuteBytes::class, 'bytes')) {
+                                $sql->bindValue($binding, CuteBytes::bytes((string)$value[0], 1024, bits: mb_strtolower($value[1], 'UTF-8') === 'bits'));
+                            } else {
+                                $sql->bindValue($binding, (string)$value[0]);
+                            }
+                            break;
                         case 'match':
                             #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
                             $sql->bindValue($binding, $this->match((string)$value[0]));
@@ -344,7 +352,7 @@ class Controller
                         case 'large':
                         case 'object':
                         case 'blob':
-                            $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, strlen($value[0]));
+                            $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, \strlen($value[0]));
                             break;
                         default:
                             if (\is_int($value[1])) {
@@ -849,18 +857,19 @@ class Controller
      * Only for MySQL/MariaDB
      *
      * @param string $schema Optional name of the schema to limit to
+     * @param bool   $bySize
      *
      * @return array
      */
-    public function showOrderedTables(string $schema = ''): array
+    public function showOrderedTables(string $schema = '', bool $bySize = false): array
     {
         #This is the list of tables, that we will return in the end
         $tablesOrderedFull = [];
         #This is the list of the same tables, but where every element is a string of format `schema`.`table`. Used for array search purposes only
         $tablesNamesOnly = [];
         #Get all tables except standard system ones and also order them by size
-        $tablesRaw = $this->selectAll('SELECT `TABLE_SCHEMA` as `schema`, `TABLE_NAME` as `table` FROM INFORMATION_SCHEMA.TABLES WHERE `TABLE_SCHEMA` NOT IN (\'information_schema\', \'performance_schema\', \'mysql\', \'sys\', \'test\')'.(empty($schema) ? '' : ' AND `TABLE_SCHEMA`=:schema').' ORDER BY (DATA_LENGTH+INDEX_LENGTH);', (empty($schema) ? [] : [':schema' => [$schema, 'string']]));
-        #Get dependencies
+        $tablesRaw = $this->selectAll('SELECT `TABLE_SCHEMA` as `schema`, `TABLE_NAME` as `table`'.($bySize ? ', (DATA_LENGTH+INDEX_LENGTH) as `size`' : '').' FROM INFORMATION_SCHEMA.TABLES WHERE `TABLE_SCHEMA` NOT IN (\'information_schema\', \'performance_schema\', \'mysql\', \'sys\', \'test\')'.(empty($schema) ? '' : ' AND `TABLE_SCHEMA`=:schema').' ORDER BY '.($bySize ? '(DATA_LENGTH+INDEX_LENGTH), ' : '').'`TABLE_SCHEMA`, `TABLE_NAME`;', (empty($schema) ? [] : [':schema' => [$schema, 'string']]));
+        #Get dependencies for each table
         foreach ($tablesRaw as $key => $table) {
             $table['dependencies'] = $this->selectAllDependencies($table['schema'], $table['table']);
             if (count($table['dependencies']) === 0) {
@@ -893,6 +902,12 @@ class Controller
                 $tablesOrderedFull[] = $table;
                 $tablesNamesOnly[] = '`'.$table['schema'].'`.`'.$table['table'].'`';
                 unset($tablesRaw[$key]);
+            }
+        }
+        #Convert size to human bytes, if respective function exists
+        if ($bySize && method_exists(CuteBytes::class, 'bytes')) {
+            foreach ($tablesOrderedFull as $key => $table) {
+                $tablesOrderedFull[$key]['size'] = CuteBytes::bytes($table['size'], 1024);
             }
         }
         return $tablesOrderedFull;
@@ -981,12 +996,13 @@ class Controller
      * Due to SHOW CREATE TABLE being special, we can't use it as sub-query, so need to do 2 queries instead.
      * Only for MySQL/MariaDB
      *
-     * @param string $schema Schema name
-     * @param string $table  Table name
+     * @param string $schema      Schema name.
+     * @param string $table       Table name.
+     * @param bool   $noIncrement Remove `AUTO_INCREMENT=X` table option. Column attribute will still be present.
      *
      * @return string|null
      */
-    public function showCreateTable(string $schema, string $table): ?string
+    public function showCreateTable(string $schema, string $table, bool $noIncrement = true): ?string
     {
         #Get the original create function
         $create = $this->selectValue('SHOW CREATE TABLE `'.$schema.'`.`'.$table.'`;', [], 1);
@@ -1006,6 +1022,9 @@ class Controller
                 #Else we need to add it to the end
                 $create = preg_replace('/;$/u', ' ROW_FORMAT='.$rowFormat.';', $create);
             }
+        }
+        if ($noIncrement === true) {
+            $create = preg_replace('/(\s* AUTO_INCREMENT=\d+)/ui', '', $create);
         }
         #Return result
         return $create;

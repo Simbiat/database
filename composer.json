@@ -23,6 +23,9 @@
         "ext-pdo": "*",
         "ext-mbstring": "*"
     },
+    "suggest": {
+        "simbiat/cute-bytes": "Allows to present bytes in human-readable format"
+    },
     "autoload": {
         "psr-4": {
             "Simbiat\\Database\\": "src/"
