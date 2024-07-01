@@ -145,6 +145,11 @@ class Controller
                     $sql = null;
                     $currentBindings = null;
                     $currentKey = $key;
+                    #Prepare bindings if any
+                    if (!empty($query[1])) {
+                        $currentBindings = $query[1];
+                        $this->prepareBindings($query[0], $currentBindings);
+                    }
                     #Prepare query
                     if ($this->dbh->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
                         #Force buffered query for MySQL
@@ -154,7 +159,6 @@ class Controller
                     }
                     #Bind values, if any
                     if (!empty($query[1])) {
-                        $currentBindings = $this->cleanBindings($query[0], $query[1]);
                         $sql = $this->binding($sql, $currentBindings);
                     }
                     #Increasing time limit for potentially long operations (like optimize)
@@ -265,14 +269,44 @@ class Controller
     }
     
     /**
-     * Function to clean extra bindings from a list, if they are not present in the query itself
+     * Function to unpack IN bindings and clean extra ones from a list, if they are not present in the query itself
      * @param string $sql      Query to process
      * @param array  $bindings List of bindings
      *
      * @return array
      */
-    private function cleanBindings(string $sql, array $bindings): array
+    private function prepareBindings(string &$sql, array &$bindings): array
     {
+        #First unpack IN binding
+        $allInBindings = [];
+        $in = false;
+        foreach ($bindings as $binding => $value) {
+            if (mb_strtolower($value[1], 'UTF-8') === 'in') {
+                if (!is_array($value[0])) {
+                    throw new \UnexpectedValueException('When using `in` binding only array is allowed');
+                }
+                #Check if type is set
+                if (empty($value[2]) || !is_string($value[2])) {
+                    $value[2] = 'string';
+                }
+                #Prevent attempts on IN recursion
+                if ($value[2] === 'in') {
+                    throw new \UnexpectedValueException('Can\'t use `in` type when already using `in` binding');
+                }
+                #Ensure we have a non-associative array
+                $value[0] = array_values($value[0]);
+                $inBindings = [];
+                #Generate list of
+                foreach ($value[0] as $inCount => $inItem) {
+                    $inBindings[$binding.'_'.$inCount] = [$inItem, $value[2]];
+                    $allInBindings[$binding.'_'.$inCount] = [$inItem, $value[2]];
+                }
+                unset($bindings[$binding]);
+                #Update the query
+                $sql = str_replace($binding, implode(', ', array_keys($inBindings)), $sql);
+            }
+        }
+        $bindings = array_merge($bindings, $allInBindings);
         foreach ($bindings as $binding => $value) {
             if (!str_contains($sql, $binding)) {
                 unset($bindings[$binding]);
@@ -642,22 +676,168 @@ class Controller
     }
     
     /**
-     * Check if table exists
-     * @param string $table  Table name
-     * @param string $schema Optional (but recommended) schema name
+     * Check if table(s) exist(s)
      *
-     * @return bool
+     * @param string|array $table  Table name(s)
+     * @param string|array $schema Optional (but recommended) schema name(s)
+     *
+     * @return int Number of table(s) found
      */
-    public function checkTable(string $table, string $schema = ''): bool
+    public function checkTable(string|array $table, string|array $schema = ''): int
     {
         try {
             #Adjust query depending on whether schema is set
             if (empty($schema)) {
-                $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table;';
-                $bindings = [':table' => $table];
+                $query = 'SELECT COUNT(*) as `count` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` IN(:table);';
+                $bindings = [
+                    ':table' =>
+                        [
+                            $table,
+                            is_string($table) ? 'string' : 'in',
+                            'string'
+                        ]
+                ];
             } else {
-                $query = 'SELECT `TABLE_NAME` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` = :table AND `TABLE_SCHEMA` = :schema;';
-                $bindings = [':table' => $table, ':schema' => $schema];
+                $query = 'SELECT COUNT(*) as `count` FROM `information_schema`.`TABLES` WHERE `TABLE_NAME` IN(:table) AND `TABLE_SCHEMA` IN(:schema);';
+                $bindings = [
+                    ':table' =>
+                        [
+                            $table,
+                            is_string($table) ? 'string' : 'in',
+                            'string'
+                        ],
+                    ':schema' =>
+                        [
+                            $schema,
+                            is_string($schema) ? 'string' : 'in',
+                            'string'
+                        ]
+                ];
+            }
+            return $this->count($query, $bindings);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Failed to check if table exists with `'.$e->getMessage().'`', 0, $e);
+        }
+    }
+    
+    /**
+     * Get column data type
+     * @param string $table  Table name
+     * @param string $column Column name
+     * @param string $schema Optional (but recommended) schema name
+     *
+     * @return string
+     */
+    public function getColumnType(string $table, string $column, string $schema = ''): string
+    {
+        try {
+            if (empty($schema)) {
+                $query = 'SELECT `DATA_TYPE` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME`=:table AND `COLUMN_NAME`=:column LIMIT 1;';
+                $bindings = [
+                    ':table' => $table,
+                    ':column' => $column
+                ];
+            } else {
+                $query = 'SELECT `DATA_TYPE` FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA`=:schema AND `TABLE_NAME`=:table AND `COLUMN_NAME`=:column;';
+                $bindings = [
+                    ':table' => $table,
+                    ':column' => $column,
+                    ':schema' => $schema
+                ];
+            }
+            return $this->selectValue($query, $bindings);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Failed to check if table exists with `'.$e->getMessage().'`', 0, $e);
+        }
+    }
+    
+    /**
+     * Get column description
+     * @param string $table  Table name
+     * @param string $column Column name
+     * @param string $schema Optional (but recommended) schema name
+     *
+     * @return string
+     */
+    public function getColumnDescription(string $table, string $column, string $schema = ''): string
+    {
+        try {
+            if (empty($schema)) {
+                $query = 'SELECT `COLUMN_COMMENT` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME`=:table AND `COLUMN_NAME`=:column LIMIT 1;';
+                $bindings = [
+                    ':table' => $table,
+                    ':column' => $column
+                ];
+            } else {
+                $query = 'SELECT `COLUMN_COMMENT` FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA`=:schema AND `TABLE_NAME`=:table AND `COLUMN_NAME`=:column;';
+                $bindings = [
+                    ':table' => $table,
+                    ':column' => $column,
+                    ':schema' => $schema
+                ];
+            }
+            return $this->selectValue($query, $bindings);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Failed to check if table exists with `'.$e->getMessage().'`', 0, $e);
+        }
+    }
+    
+    /**
+     * Check if column is nullable
+     * @param string $table  Table name
+     * @param string $column Column name
+     * @param string $schema Optional (but recommended) schema name
+     *
+     * @return bool
+     */
+    public function isNullable(string $table, string $column, string $schema = ''): bool
+    {
+        try {
+            if (empty($schema)) {
+                $query = 'SELECT `IS_NULLABLE` FROM `information_schema`.`COLUMNS` WHERE `TABLE_NAME`=:table AND `COLUMN_NAME`=:column LIMIT 1;';
+                $bindings = [
+                    ':table' => $table,
+                    ':column' => $column
+                ];
+            } else {
+                $query = 'SELECT `IS_NULLABLE` FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA`=:schema AND `TABLE_NAME`=:table AND `COLUMN_NAME`=:column;';
+                $bindings = [
+                    ':table' => $table,
+                    ':column' => $column,
+                    ':schema' => $schema
+                ];
+            }
+            $result = $this->selectValue($query, $bindings);
+            return 'yes' === mb_strtolower($result, 'UTF-8');
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Failed to check if table exists with `'.$e->getMessage().'`', 0, $e);
+        }
+    }
+    
+    /**
+     * Check if Foreign Key name exists
+     * @param string $table  Table name
+     * @param string $fk     Foreign Key name
+     * @param string $schema Optional (but recommended) schema name
+     *
+     * @return bool
+     */
+    public function checkFK(string $table, string $fk, string $schema = ''): bool
+    {
+        try {
+            if (empty($schema)) {
+                $query = 'SELECT `CONSTRAINT_NAME` FROM `information_schema`.`TABLE_CONSTRAINTS` WHERE `TABLE_NAME`=:table AND `CONSTRAINT_NAME`=:fk LIMIT 1;';
+                $bindings = [
+                    ':table' => $table,
+                    ':fk' => $fk
+                ];
+            } else {
+                $query = 'SELECT `CONSTRAINT_NAME` FROM `information_schema`.`TABLE_CONSTRAINTS` WHERE `TABLE_SCHEMA`=:schema AND `TABLE_NAME`=:table AND `CONSTRAINT_NAME`=:fk;';
+                $bindings = [
+                    ':table' => $table,
+                    ':fk' => $fk,
+                    ':schema' => $schema
+                ];
             }
             return $this->check($query, $bindings);
         } catch (\Throwable $e) {
@@ -1040,7 +1220,9 @@ class Controller
      */
     public function stringToQueries(string $string): array
     {
-        return preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?! *$)~', $string);
+        $queries = preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?! *$)~', $string);
+        #Trim and return
+        return array_map('trim', $queries);
     }
     
     /**

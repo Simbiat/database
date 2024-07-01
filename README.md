@@ -4,13 +4,13 @@ This is a set of 3 classes for convenience of work with databases, a wrapper and
 
 ## Classes
 
-- Config: A class for preparing configuration for database connection. You can treat this as an alternative to common 'config.php' files, but it has a few potentially beneficial features:
+- `Config`: A class for preparing configuration for database connection. You can treat this as an alternative to common 'config.php' files, but it has a few potentially beneficial features:
     - Enforcing of useful security beneficial driver settings
     - Validation of some host parameters (like port number)
     - Convenient DSN generation using `getDSN()` function
     - Password protection that makes it a bit harder to spoof the password from outside functions, besides the appropriate Pool class
-- Pool: A static proxy class which can pool database connection setups (\Simbiat\Database\Config objects) and use the one currently active, when you are requesting a PDO connection. With ability to change active connection, if required.
-- Controller: a wrapper with some potentially useful features:
+- `Pool`: A static proxy class which can pool database connection setups (\Simbiat\Database\Config objects) and use the one currently active, when you are requesting a PDO connection. With ability to change active connection, if required.
+- `Controller`: a wrapper with some potentially useful features:
     - You can send both string (single query) and array (set of queries) and both will be processed. In case of array, it will automatically start a transaction and process each query separately. In case array will have any SELECT-like queries you will be notified, because their output may not get processed properly.
     - Attempts to retry in case of deadlock. You can set number of retries and time to sleep before each try using appropriate setters.
     - Binding sugar:
