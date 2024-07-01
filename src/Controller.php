@@ -270,18 +270,19 @@ class Controller
     
     /**
      * Function to unpack IN bindings and clean extra ones from a list, if they are not present in the query itself
+     *
      * @param string $sql      Query to process
      * @param array  $bindings List of bindings
      *
-     * @return array
+     * @return void
      */
-    private function prepareBindings(string &$sql, array &$bindings): array
+    private function prepareBindings(string &$sql, array &$bindings): void
     {
         #First unpack IN binding
         $allInBindings = [];
         $in = false;
         foreach ($bindings as $binding => $value) {
-            if (mb_strtolower($value[1], 'UTF-8') === 'in') {
+            if (is_array($value) && mb_strtolower($value[1], 'UTF-8') === 'in') {
                 if (!is_array($value[0])) {
                     throw new \UnexpectedValueException('When using `in` binding only array is allowed');
                 }
@@ -312,7 +313,6 @@ class Controller
                 unset($bindings[$binding]);
             }
         }
-        return $bindings;
     }
     
     /**
