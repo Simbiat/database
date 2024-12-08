@@ -110,10 +110,7 @@ class Controller
         }
         #Check if array of queries is empty
         if (empty($queries)) {
-            #Issue a notice
-            trigger_error('No queries were provided to `query()` function');
-            #Do not consider this an "error" by default and return `true`
-            return true;
+            throw new \UnexpectedValueException('No queries were provided to `query()` function or all of them were identified as SELECT-like statements.');
         }
         #Flag for SELECT, used as sort of "cache" instead of counting values every time
         $select = false;
@@ -1234,7 +1231,11 @@ class Controller
      */
     private function isSelect(string $query, bool $throw = true): bool
     {
-        if (preg_match('/^\s*(\(\s*)*('.implode('|', self::selects).')/mi', $query) === 1) {
+        #First check that whole text does not start with any of SELECT-like statements
+        if (preg_match('/\A\s*('.implode('|', self::selects).')/mui', $query) !== 1) {
+            return false;
+        }
+        if (preg_match('/^\s*(\(\s*)*('.implode('|', self::selects).')/mui', $query) === 1) {
             return true;
         }
         if ($throw) {
