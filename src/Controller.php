@@ -1232,16 +1232,16 @@ class Controller
     private function isSelect(string $query, bool $throw = true): bool
     {
         #First check that whole text does not start with any of SELECT-like statements or with `WITH` (CTE)
-        if (preg_match('/\A\s*WITH/mui', $query) !== 1 &&
-            preg_match('/\A\s*('.implode('|', self::selects).')/mui', $query) !== 1 &&
-            preg_match('/^\s*(\(\s*)*('.implode('|', self::selects).')/mui', $query) === 1
+        if (preg_match('/\A\s*WITH/mui', $query) !== 1
+            && preg_match('/\A\s*('.implode('|', self::selects).')/mui', $query) !== 1
+            && preg_match('/^\s*(\(\s*)*('.implode('|', self::selects).')/mui', $query) !== 1
         ) {
-            return true;
+            if ($throw) {
+                throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
+            }
+            return false;
         }
-        if ($throw) {
-            throw new \UnexpectedValueException('Query is not one of '.implode(', ', self::selects).'.');
-        }
-        return false;
+        return true;
     }
     
     /**
