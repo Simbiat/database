@@ -1177,10 +1177,11 @@ class Controller
      * @param string $table       Table name.
      * @param bool   $noIncrement Remove `AUTO_INCREMENT=X` table option. Column attribute will still be present.
      * @param bool   $ifNotExist  Add `IF NOT EXISTS` clause to resulting definition.
+     * @param bool   $addUse      Add `USE` statement before the `CREATE` statement.
      *
      * @return string|null
      */
-    public function showCreateTable(string $schema, string $table, bool $noIncrement = true, bool $ifNotExist = false): ?string
+    public function showCreateTable(string $schema, string $table, bool $noIncrement = true, bool $ifNotExist = false, bool $addUse = false): ?string
     {
         #Get the original create function
         $create = $this->selectValue('SHOW CREATE TABLE `'.$schema.'`.`'.$table.'`;', [], 1);
@@ -1201,11 +1202,14 @@ class Controller
                 $create = preg_replace('/;$/u', ' ROW_FORMAT='.$rowFormat.';', $create);
             }
         }
-        if ($noIncrement === true) {
+        if ($noIncrement) {
             $create = preg_replace('/(\s* AUTO_INCREMENT=\d+)/ui', '', $create);
         }
-        if ($ifNotExist === true) {
+        if ($ifNotExist) {
             $create = preg_replace('/^CREATE TABLE/ui', /** @lang text */ 'CREATE TABLE IF NOT EXISTS', $create);
+        }
+        if ($addUse) {
+            $create = 'USE `'.$schema.'`;'.PHP_EOL.$create;
         }
         #Return result
         return $create;
