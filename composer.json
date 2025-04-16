@@ -24,6 +24,7 @@
         "ext-mbstring": "*"
     },
     "suggest": {
+        "simbiat/db-pool": "Allows use of database connections pool",
         "simbiat/cute-bytes": "Allows to present bytes in human-readable format"
     },
     "autoload": {

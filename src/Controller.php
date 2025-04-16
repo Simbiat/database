@@ -5,8 +5,10 @@ namespace Simbiat\Database;
 
 use Simbiat\CuteBytes;
 use Simbiat\SandClock;
-
-use function is_string, count, in_array, is_array;
+use function count;
+use function in_array;
+use function is_array;
+use function is_string;
 
 /**
  * Query the database
@@ -44,9 +46,20 @@ class Controller
     private mixed $result = null;
     private null|string|false $lastId = null;
     
-    public function __construct()
+    /**
+     * @param \PDO|null $dbh PDO object to use for database connection. If not provided, class expects existence of `\Simbiat\Database\Pool` to utilize that instead.
+     */
+    public function __construct(\PDO|null $dbh = null)
     {
-        $this->dbh = Pool::openConnection();
+        if ($dbh === null) {
+            if (method_exists(Pool::class, 'openConnection')) {
+                $this->dbh = Pool::openConnection();
+            } else {
+                throw new \RuntimeException('Pool class not loaded and no PDO object provided.');
+            }
+        } else {
+            $this->dbh = $dbh;
+        }
     }
     
     /**
@@ -277,7 +290,6 @@ class Controller
     {
         #First unpack IN binding
         $allInBindings = [];
-        $in = false;
         foreach ($bindings as $binding => $value) {
             if (is_array($value) && mb_strtolower($value[1], 'UTF-8') === 'in') {
                 if (!is_array($value[0])) {
@@ -419,20 +431,22 @@ class Controller
      */
     private function match(string $string): string
     {
-        #Trim first
-        $newValue = preg_replace('/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u', '', $string);
-        #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
-        $newValue = preg_replace('/[^\p{L}\p{N}_+\-<>~()"* ]/u', '', $newValue);
-        #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
-        $newValue = preg_replace('/(?<!^| )[+\-<>~]/u', '', $newValue);
-        #Remove all double quotes and asterisks, that are not preceded by either beginning of string, letter, number or space
-        $newValue = preg_replace('/(?<![\p{L}\p{N}_ ]|^)[*"]/u', '', $newValue);
-        #Remove all double quotes and asterisks, that are inside text
-        $newValue = preg_replace('/([\p{L}\p{N}_])([*"])([\p{L}\p{N}_])/u', '', $newValue);
-        #Remove all opening parenthesis which are not preceded by beginning of string or space
-        $newValue = preg_replace('/(?<!^| )\(/u', '', $newValue);
-        #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
-        $newValue = preg_replace('/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u', '', $newValue);
+        $newValue = preg_replace([
+            #Trim first
+            '/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u',
+            #Remove all symbols except allowed operators and space. @distance is not included, since it's unlikely a human will be using it through UI form
+            '/[^\p{L}\p{N}_+\-<>~()"* ]/u',
+            #Remove all operators, that can only precede a text and that are not preceded by either beginning of string or space
+            '/(?<!^| )[+\-<>~]/u',
+            #Remove all double quotes and asterisks, that are not preceded by either beginning of string, letter, number or space
+            '/(?<![\p{L}\p{N}_ ]|^)[*"]/u',
+            #Remove all double quotes and asterisks, that are inside text
+            '/([\p{L}\p{N}_])([*"])([\p{L}\p{N}_])/u',
+            #Remove all opening parenthesis which are not preceded by beginning of string or space
+            '/(?<!^| )\(/u',
+            #Remove all closing parenthesis which are not preceded by beginning of string or space or are not followed by end of string or space
+            '/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u'
+        ], '', $string);
         #Remove all double quotes if the count is not even
         if (mb_substr_count($newValue, '"', 'UTF-8') % 2 !== 0) {
             $newValue = preg_replace('/"/u', '', $newValue);
@@ -441,10 +455,12 @@ class Controller
         if (mb_substr_count($newValue, '(', 'UTF-8') !== mb_substr_count($newValue, ')', 'UTF-8')) {
             $newValue = preg_replace('/[()]/u', '', $newValue);
         }
-        #Remove all operators, that can only precede a text and that do not have text after them (at the end of string). Do this for any possible combinations
-        $newValue = preg_replace('/[+\-<>~]+$/u', '', $newValue);
-        #Remove asterisk operator at the beginning of string
-        $newValue = preg_replace('/^\*/u', '', $newValue);
+        $newValue = preg_replace([
+            #Remove all operators, that can only precede a text and that do not have text after them (at the end of string). Do this for any possible combinations
+            '/[+\-<>~]+$/u',
+            #Remove asterisk operator at the beginning of string
+            '/^\*/u'
+        ], '', $newValue);
         #Check if the new value is just the set of operators and if it is - set the value to an empty string
         if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
             $newValue = '';
