@@ -1,4 +1,4 @@
-# Database Pool and Controller
+# Database Controller
 
 This is a `PDO` wrapper with some potentially useful features:
 - You can send both string (single query) and array (set of queries) and both will be processed. In case of array, it will automatically start a transaction and process each query separately. In case array will have any SELECT-like queries you will be notified, because their output may not get processed properly.

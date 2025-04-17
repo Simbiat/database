@@ -43,7 +43,7 @@ class Controller
     /**
      * @var mixed Result of the last query
      */
-    private mixed $result = null;
+    public private(set) mixed $result = null;
     private null|string|false $lastId = null;
     
     /**
@@ -1080,6 +1080,7 @@ class Controller
             #Throw an error, because with cyclic references there is no way to determine the order at all
             throw new \PDOException('Cyclic foreign key references detected.');
         }
+        #While is used because when we reach the end in first run we may still have items left in the array
         while (count($tablesRaw) > 0) {
             foreach ($tablesRaw as $key => $table) {
                 #Check if table is all tables from dependencies list is already present in the ordered list
