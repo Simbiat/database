@@ -19,13 +19,13 @@ This is a `PDO` wrapper with some potentially useful features:
 To utilize `Controller` you need to establish connection using [DB-Pool](https://github.com/Simbiat/db-pool) library or by passing a `PDO` object to constructor, and then call either it `query()` function or any of the wrappers. For example, this line will count rows in a table and return only the number of those rows, that is an integer:
 
 ```php
-(new \Simbiat\Database\Controller($dbh))->count('SELECT COUNT(*) FROM `table`');
+(new \Simbiat\Database\Select($dbh))::count('SELECT COUNT(*) FROM `table`');
 ```
 
 This one will return a boolean, advising if something exists in a table:
 
 ```php
-(new \Simbiat\Database\Controller($dbh))->check('SELECT * FROM `table` WHERE `time`=:value', [':value'=>['', 'time']]);
+(new \Simbiat\Database\Select($dbh))::check('SELECT * FROM `table` WHERE `time`=:value', [':value'=>['', 'time']]);
 ```
 
 The above example also shows one of possible ways to set bindings. Regular `PDO` allows binding values like `hook, value, type`, but `Controller` expects an array for `value` if you want to send a non-string one or a special value, like the above mentioned `time`. Since We are sending an empty value for `time` `Controller` will take current microtime and convert and bind it in `Y-m-d H:i:s.u` format.
