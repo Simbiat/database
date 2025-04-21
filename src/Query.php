@@ -294,7 +294,13 @@ abstract class Query
     public static function stringToQueries(string $string): array
     {
         $queries = preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?! *$)~', $string);
-        #Trim and return
-        return array_map('trim', $queries);
+        $filtered = [];
+        foreach ($queries as $query) {
+            $query = mb_trim($query, null, 'UTF-8');
+            if (preg_match('/^\s*$/', $query) === 0) {
+                $filtered[] = $query;
+            }
+        }
+        return $filtered;
     }
 }
