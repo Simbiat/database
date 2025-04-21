@@ -93,7 +93,7 @@ final class Bind
             } else {
                 $errMessage .= ' with value `'.$value.'`';
             }
-            throw new \RuntimeException($errMessage, 0, $exception);
+            throw new \PDOException($errMessage, $exception->getCode(), $exception);
         }
     }
     
