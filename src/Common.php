@@ -38,6 +38,34 @@ class Common
      * @var int Number of queries ran. Static for convenience, in case the object gets destroyed, but you still want to get the total number
      */
     public static int $queries = 0;
+    /**
+     * @var array Timing statistics for each query
+     */
+    public static array $timings = [];
+    
+    /**
+     * Add timing statistics
+     *
+     * @param string    $query Query to register
+     * @param float|int $time  Time spent on the last query run
+     *
+     * @return void
+     */
+    public static function addTiming(string $query, float|int $time): void
+    {
+        #Check if this query has been registered already
+        $key = array_search($query, array_column(self::$timings, 'query'), true);
+        if ($key === false) {
+            #Not registered yet, so add it
+            self::$timings[] = [
+                'query' => $query,
+                'time' => [$time],
+            ];
+        } else {
+            #Registered, so add to the list of times
+            self::$timings[$key]['time'][] = $time;
+        }
+    }
     
     /**
      * Set the PDO object to run queries against

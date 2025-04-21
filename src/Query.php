@@ -70,29 +70,29 @@ abstract class Query
             if (preg_match('/^\s*$/', $queries) === 1) {
                 throw new \UnexpectedValueException('Query is an empty string.');
             }
-            #Convert to array
-            $queries = [[$queries, $bindings]];
-        } else {
+            #Split the string to an array of queries (in case multiple was sent as 1 string)
+            $queries = self::stringToQueries($queries);
+        }
+        #Ensure integer keys
+        $queries = array_values($queries);
+        #Iterrate over array to merge binding
+        foreach ($queries as $key => $query) {
             #Ensure integer keys
-            $queries = array_values($queries);
-            #Iterrate over array to merge binding
-            foreach ($queries as $key => $query) {
-                #Ensure integer keys
-                if (is_string($query)) {
-                    $query = [0 => $query, 1 => []];
-                }
-                $queries[$key] = array_values($query);
-                #Check if the query is a string
-                if (!is_string($queries[$key][0])) {
-                    #Exit earlier for speed
-                    throw new \UnexpectedValueException('Query #'.$key.' is not a string.');
-                }
-                if (preg_match('/^\s*$/', $queries[$key][0]) === 1) {
-                    throw new \UnexpectedValueException('Query #'.$key.' is an empty string.');
-                }
-                #Merge bindings
-                $queries[$key][1] = array_merge($queries[$key][1] ?? [], $bindings);
+            if (is_string($query)) {
+                $query = [0 => $query, 1 => []];
             }
+            $queries[$key] = array_values($query);
+            #Check if the query is a string
+            if (!is_string($queries[$key][0])) {
+                #Exit earlier for speed
+                throw new \UnexpectedValueException('Query #'.$key.' is not a string.');
+            }
+            if (preg_match('/^\s*$/', $queries[$key][0]) === 1) {
+                throw new \UnexpectedValueException('Query #'.$key.' is an empty string.');
+            }
+            #Merge bindings. Suppressing inspection, since we always have an array due to explicit conversion on previous step
+            /** @noinspection UnsupportedStringOffsetOperationsInspection */
+            $queries[$key][1] = array_merge($queries[$key][1] ?? [], $bindings);
         }
         #Remove any SELECT queries and comments if more than 1 query is sent
         if (count($queries) > 1) {
@@ -115,7 +115,7 @@ abstract class Query
         #Flag for SELECT, used as a sort of "cache" instead of counting values every time
         $select = false;
         #If we have just 1 query, which is a `SELECT` - disable transaction
-        if ((count($queries) === 1) && preg_match('/^\s*\(*'.implode('|', Common::selects).'/mi', $queries[0][0]) === 1) {
+        if ((count($queries) === 1) && self::isSelect($queries[0][0], false)) {
             $select = true;
             $transaction = false;
         }
@@ -160,7 +160,9 @@ abstract class Query
                     #Increase the number of queries
                     Common::$queries++;
                     #Execute the query
+                    $start = hrtime(true);
                     $sql->execute();
+                    Common::addTiming($query[0], hrtime(true) - $start);
                     #If debug is enabled dump PDO details
                     if (Common::$debug) {
                         $sql->debugDumpParams();
