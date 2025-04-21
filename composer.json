@@ -19,13 +19,13 @@
     ],
     "require": {
         "php": "^8.4",
-        "simbiat/sand-clock": "*",
         "ext-pdo": "*",
         "ext-mbstring": "*"
     },
     "suggest": {
         "simbiat/db-pool": "Allows use of database connections pool",
-        "simbiat/cute-bytes": "Allows to present bytes in human-readable format"
+        "simbiat/cute-bytes": "Allows to present bytes in human-readable format",
+        "simbiat/sand-clock": "Allows better handling of date and time formats"
     },
     "autoload": {
         "psr-4": {

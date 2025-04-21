@@ -45,13 +45,25 @@ final class Bind
                 }
                 switch (mb_strtolower($value[1], 'UTF-8')) {
                     case 'date':
-                        $sql->bindValue($binding, SandClock::format($value[0], 'Y-m-d'));
+                        if (method_exists(SandClock::class, 'format')) {
+                            $sql->bindValue($binding, SandClock::format($value[0], 'Y-m-d'));
+                        } else {
+                            $sql->bindValue($binding, (string)$value[0]);
+                        }
                         break;
                     case 'time':
-                        $sql->bindValue($binding, SandClock::format($value[0], 'H:i:s.u'));
+                        if (method_exists(SandClock::class, 'format')) {
+                            $sql->bindValue($binding, SandClock::format($value[0], 'H:i:s.u'));
+                        } else {
+                            $sql->bindValue($binding, (string)$value[0]);
+                        }
                         break;
                     case 'datetime':
-                        $sql->bindValue($binding, SandClock::format($value[0]));
+                        if (method_exists(SandClock::class, 'format')) {
+                            $sql->bindValue($binding, SandClock::format($value[0]));
+                        } else {
+                            $sql->bindValue($binding, (string)$value[0]);
+                        }
                         break;
                     case 'bool':
                     case 'boolean':
@@ -124,7 +136,7 @@ final class Bind
      *
      * @return string
      */
-    private static function match(string $string): string
+    public static function match(string $string): string
     {
         $newValue = preg_replace([
             #Trim first
