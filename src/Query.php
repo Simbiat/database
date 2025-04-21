@@ -150,7 +150,7 @@ abstract class Query
                     }
                     #Bind values, if any
                     if (!empty($query[1])) {
-                        $sql = Bind::binding($sql, $currentBindings);
+                        Bind::binding($sql, $currentBindings);
                     }
                     #Increasing time limit for potentially long operations (like optimize)
                     set_time_limit(Common::$maxRunTime);

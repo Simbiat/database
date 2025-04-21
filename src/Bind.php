@@ -14,13 +14,46 @@ use function is_array, is_string;
 final class Bind
 {
     /**
+     * Array to link various data types to their respective binding handlers. Key represents a data type, value is the handler function name.
+     * @var array|string[]
+     */
+    private static array $bindingHandlers = [
+        'date' => 'bindDate',
+        'time' => 'bindTime',
+        'datetime' => 'bindDateTime',
+        'bool' => 'bindBoolean',
+        'boolean' => 'bindBoolean',
+        'null' => 'bindNull',
+        'int' => 'bindInteger',
+        'integer' => 'bindInteger',
+        'number' => 'bindInteger',
+        'limit' => 'bindInteger',
+        'offset' => 'bindInteger',
+        'str' => 'bindString',
+        'string' => 'bindString',
+        'text' => 'bindString',
+        'float' => 'bindString',
+        'varchar' => 'bindString',
+        'varchar2' => 'bindString',
+        'bytes' => 'bindBytes',
+        'bits' => 'bindBits',
+        'match' => 'bindMatch',
+        'like' => 'bindLike',
+        'lob' => 'bindBinary',
+        'large' => 'bindBinary',
+        'object' => 'bindBinary',
+        'blob' => 'bindBinary',
+    ];
+    
+    /**
      * Function mainly for convenience and some types enforcing, which sometimes 'fail' in PDO itself
+     *
      * @param \PDOStatement $sql      Query to process.
      * @param array         $bindings List of bindings as an array. Each item should be either just a non-array value or an array in format `[$value, 'type_of_the_value']`.
      *
-     * @return \PDOStatement
+     * @return void
      */
-    public static function binding(\PDOStatement $sql, array $bindings = []): \PDOStatement
+    public static function binding(\PDOStatement $sql, array $bindings = []): void
     {
         try {
             foreach ($bindings as $binding => $value) {
@@ -43,80 +76,14 @@ final class Bind
                 if (!isset($value[1]) || !is_string($value[1])) {
                     $value[1] = '';
                 }
-                switch (mb_strtolower($value[1], 'UTF-8')) {
-                    case 'date':
-                        if (method_exists(SandClock::class, 'format')) {
-                            $sql->bindValue($binding, SandClock::format($value[0], 'Y-m-d'));
-                        } else {
-                            $sql->bindValue($binding, (string)$value[0]);
-                        }
-                        break;
-                    case 'time':
-                        if (method_exists(SandClock::class, 'format')) {
-                            $sql->bindValue($binding, SandClock::format($value[0], 'H:i:s.u'));
-                        } else {
-                            $sql->bindValue($binding, (string)$value[0]);
-                        }
-                        break;
-                    case 'datetime':
-                        if (method_exists(SandClock::class, 'format')) {
-                            $sql->bindValue($binding, SandClock::format($value[0]));
-                        } else {
-                            $sql->bindValue($binding, (string)$value[0]);
-                        }
-                        break;
-                    case 'bool':
-                    case 'boolean':
-                        $sql->bindValue($binding, (bool)$value[0], \PDO::PARAM_BOOL);
-                        break;
-                    case 'null':
-                        $sql->bindValue($binding, null, \PDO::PARAM_NULL);
-                        break;
-                    case 'int':
-                    case 'integer':
-                    case 'number':
-                    case 'limit':
-                    case 'offset':
-                        $sql->bindValue($binding, (int)$value[0], \PDO::PARAM_INT);
-                        break;
-                    case 'str':
-                    case 'string':
-                    case 'text':
-                    case 'float':
-                    case 'varchar':
-                    case 'varchar2':
-                        $sql->bindValue($binding, (string)$value[0]);
-                        break;
-                    case 'bytes':
-                    case 'bits':
-                        if (method_exists(CuteBytes::class, 'bytes')) {
-                            $sql->bindValue($binding, CuteBytes::bytes((string)$value[0], 1024, bits: mb_strtolower($value[1], 'UTF-8') === 'bits'));
-                        } else {
-                            $sql->bindValue($binding, (string)$value[0]);
-                        }
-                        break;
-                    case 'match':
-                        #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
-                        $sql->bindValue($binding, self::match((string)$value[0]));
-                        break;
-                    case 'like':
-                        #Same as string, but wrapped in % for LIKE '%string%'
-                        $sql->bindValue($binding, '%'.$value[0].'%');
-                        break;
-                    case 'lob':
-                    case 'large':
-                    case 'object':
-                    case 'blob':
-                        #Suppress warning from custom inspection, since we are dealing with binary data here, so use of mb_strlen is not appropriate
-                        /** @noinspection NoMBMultibyteAlternative */
-                        $sql->bindParam($binding, $value[0], \PDO::PARAM_LOB, \strlen($value[0]));
-                        break;
-                    default:
-                        if (\is_int($value[1])) {
-                            $sql->bindValue($binding, $value[0], $value[1]);
-                        } else {
-                            $sql->bindValue($binding, (string)$value[0]);
-                        }
+                $type = mb_strtolower($value[1], 'UTF-8');
+                $handler = self::$bindingHandlers[$type] ?? null;
+                if ($handler && method_exists(self::class, $handler)) {
+                    self::$handler($sql, $binding, $value[0]);
+                } elseif (\is_int($value[1])) {
+                    $sql->bindValue($binding, $value[0], $value[1]);
+                } else {
+                    $sql->bindValue($binding, (string)$value[0]);
                 }
             }
         } catch (\Throwable $exception) {
@@ -128,16 +95,158 @@ final class Bind
             }
             throw new \RuntimeException($errMessage, 0, $exception);
         }
-        return $sql;
     }
     
-    /** Helper function to prepare string binding for MATCH in FULLTEXT search
-     * @param string $string
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as date. If `\Simbiat\SandClock` is available will try to format as `Y-m-d`, otherwise expects a properly formatted string.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
      *
-     * @return string
+     * @return void
      */
-    public static function match(string $string): string
+    public static function bindDate(\PDOStatement $sql, string $binding, mixed $value): void
     {
+        if (method_exists(SandClock::class, 'format')) {
+            self::bindString($sql, $binding, SandClock::format($value, 'Y-m-d'));
+        } else {
+            self::bindString($sql, $binding, (string)$value);
+        }
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as time. If `\Simbiat\SandClock` is available will try to format as `H:i:s.u`, otherwise expects a properly formatted string.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindTime(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        if (method_exists(SandClock::class, 'format')) {
+            self::bindString($sql, $binding, SandClock::format($value, 'H:i:s.u'));
+        } else {
+            self::bindString($sql, $binding, (string)$value);
+        }
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as datetime. If `\Simbiat\SandClock` is available will try to format as `Y-m-d H:i:s.u`, otherwise expects a properly formatted string.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindDateTime(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        if (method_exists(SandClock::class, 'format')) {
+            self::bindString($sql, $binding, SandClock::format($value));
+        } else {
+            self::bindString($sql, $binding, (string)$value);
+        }
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as boolean.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindBoolean(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        $sql->bindValue($binding, (bool)$value, \PDO::PARAM_BOOL);
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as null.
+     *
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     * @noinspection PhpUnusedParameterInspection
+     * */
+    public static function bindNull(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        $sql->bindValue($binding, null, \PDO::PARAM_NULL);
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as integer.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindInteger(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        $sql->bindValue($binding, (int)$value, \PDO::PARAM_INT);
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as string.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindString(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        $sql->bindValue($binding, (string)$value);
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as bytes value (string). If `\Simbiat\CuteBytes` is not available, the value will be bound as is.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindBytes(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        if (method_exists(CuteBytes::class, 'bytes')) {
+            self::bindString($sql, $binding, CuteBytes::bytes((string)$value, 1024));
+        } else {
+            self::bindString($sql, $binding, (string)$value);
+        }
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as bits value (string). If `\Simbiat\CuteBytes` is not available, the value will be bound as is.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindBits(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        if (method_exists(CuteBytes::class, 'bytes')) {
+            self::bindString($sql, $binding, CuteBytes::bytes((string)$value, 1024, bits: true));
+        } else {
+            self::bindString($sql, $binding, (string)$value);
+        }
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as a string for `MATCH` operator in `FULLTEXT` search.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindMatch(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        #Same as string, but for MATCH operator, when your string can have special characters, that will break the query
         $newValue = preg_replace([
             #Trim first
             '/^[\p{Z}\h\v\r\n]+|[\p{Z}\h\v\r\n]+$/u',
@@ -153,7 +262,7 @@ final class Bind
             '/(?<!^| )\(/u',
             #Remove all closing parentheses, which are not preceded by the beginning of string or space or are not followed by the end of string or space
             '/(?<![\p{L}\p{N}_])\)|\)(?! |$)/u'
-        ], '', $string);
+        ], '', (string)$value);
         #Remove all double quotes if the count is not even
         if (mb_substr_count($newValue, '"', 'UTF-8') % 2 !== 0) {
             $newValue = preg_replace('/"/u', '', $newValue);
@@ -172,7 +281,36 @@ final class Bind
         if (preg_match('/^[+\-<>~()"*]+$/u', $newValue)) {
             $newValue = '';
         }
-        return $newValue;
+        self::bindString($sql, $binding, $newValue);
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as a string wrapped in `%` for a `LIKE` statement.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindLike(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        #Same as string, but wrapped in % for LIKE '%string%'
+        self::bindString($sql, $binding, '%'.$value.'%');
+    }
+    
+    /**
+     * Bind value to parameter identifier in PDOStatement's query as a binary object.
+     * @param \PDOStatement $sql     PDOStatement to use
+     * @param string        $binding Identifier name
+     * @param mixed         $value   Value to bind
+     *
+     * @return void
+     */
+    public static function bindBinary(\PDOStatement $sql, string $binding, mixed $value): void
+    {
+        #Suppress warning from custom inspection, since we are dealing with binary data here, so use of mb_strlen is not appropriate
+        /** @noinspection NoMBMultibyteAlternative */
+        $sql->bindParam($binding, $value, \PDO::PARAM_LOB, \strlen($value));
     }
     
     /**
