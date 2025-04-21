@@ -14,26 +14,6 @@ use function is_string, count, is_array, in_array;
 abstract class Query
 {
     /**
-     * @var null|\PDO List of functions that may return rows
-     */
-    private static ?\PDO $dbh;
-    /**
-     * @var bool Debug mode
-     */
-    private static bool $debug = false;
-    /**
-     * @var int Maximum time (in seconds) for the query (for `set_time_limit`)
-     */
-    private static int $maxRunTime = 3600;
-    /**
-     * @var int Number of times to retry in case of deadlock
-     */
-    private static int $maxTries = 5;
-    /**
-     * @var int Time (in seconds) to wait between retries in case of deadlock
-     */
-    private static int $sleep = 5;
-    /**
      * @var mixed Result of the last query
      */
     public static mixed $lastResult = null;
@@ -46,7 +26,6 @@ abstract class Query
      */
     public static null|string|false $lastId = null;
     
-    
     /**
      * @param \PDO|null $dbh        PDO object to use for database connection. If not provided, the class expects the existence of `\Simbiat\Database\Pool` to use that instead.
      * @param int|null  $maxRunTime Maximum time (in seconds) for the query (for `set_time_limit`)
@@ -56,35 +35,18 @@ abstract class Query
      */
     public function __construct(?\PDO $dbh = null, ?int $maxRunTime = null, ?int $maxTries = null, ?int $sleep = null, bool $debug = false)
     {
-        if ($dbh === null) {
-            if (method_exists(Pool::class, 'openConnection')) {
-                self::$dbh = Pool::openConnection();
-            } else {
-                throw new \RuntimeException('Pool class not loaded and no PDO object provided.');
-            }
-        } else {
-            self::$dbh = $dbh;
-        }
+        Common::setDbh($dbh);
         #Update settings. All of them except for Debug Mode should change only if we explicitly pass new values. Debug mode should be reset on every call
         if ($maxRunTime !== null) {
-            if ($maxRunTime < 1) {
-                $maxRunTime = 1;
-            }
-            self::$maxRunTime = $maxRunTime;
+            Common::setMaxRunTime($maxRunTime);
         }
         if ($maxTries !== null) {
-            if ($maxTries < 1) {
-                $maxTries = 1;
-            }
-            self::$maxTries = $maxTries;
+            Common::setMaxTries($maxTries);
         }
         if ($sleep !== null) {
-            if ($sleep < 1) {
-                $sleep = 1;
-            }
-            self::$sleep = $sleep;
+            Common::setSleep($sleep);
         }
-        self::$debug = $debug;
+        Common::setDebug($debug);
     }
     
     /**
@@ -157,7 +119,7 @@ abstract class Query
             $select = true;
             $transaction = false;
         }
-        #Reset number of affected rows and reset it before run
+        #Reset the number of affected rows and reset it before run
         self::$lastAffected = 0;
         #Set counter for tries
         $try = 0;
@@ -169,7 +131,7 @@ abstract class Query
                 $try++;
                 #Initiate transaction if we are using it
                 if ($transaction) {
-                    self::$dbh->beginTransaction();
+                    Common::$dbh->beginTransaction();
                 }
                 #Loop through queries
                 foreach ($queries as $key => $query) {
@@ -183,24 +145,24 @@ abstract class Query
                         self::prepareBindings($query[0], $currentBindings);
                     }
                     #Prepare the query
-                    if (self::$dbh->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+                    if (Common::$dbh->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
                         #Force the buffered query for MySQL
-                        $sql = self::$dbh->prepare($query[0], [\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true]);
+                        $sql = Common::$dbh->prepare($query[0], [\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true]);
                     } else {
-                        $sql = self::$dbh->prepare($query[0]);
+                        $sql = Common::$dbh->prepare($query[0]);
                     }
                     #Bind values, if any
                     if (!empty($query[1])) {
                         $sql = self::binding($sql, $currentBindings);
                     }
                     #Increasing time limit for potentially long operations (like optimize)
-                    set_time_limit(self::$maxRunTime);
+                    set_time_limit(Common::$maxRunTime);
                     #Increase the number of queries
                     Common::$queries++;
                     #Execute the query
                     $sql->execute();
                     #If debug is enabled dump PDO details
-                    if (self::$debug) {
+                    if (Common::$debug) {
                         $sql->debugDumpParams();
                         ob_flush();
                         flush();
@@ -234,22 +196,22 @@ abstract class Query
                 }
                 #Try to get the last ID (if we had any inserts with auto increment
                 try {
-                    self::$lastId = self::$dbh->lastInsertId();
+                    self::$lastId = Common::$dbh->lastInsertId();
                 } catch (\Throwable) {
                     #Either the function is not supported by the driver or it requires a sequence name.
                     #Since this class is meant to be universal, I do not see a good way to support sequence name at the time of writing.
                     self::$lastId = false;
                 }
                 #Initiate a transaction if we are using it
-                if ($transaction && self::$dbh->inTransaction()) {
-                    self::$dbh->commit();
+                if ($transaction && Common::$dbh->inTransaction()) {
+                    Common::$dbh->commit();
                 }
                 return true;
             } catch (\Throwable $e) {
                 $errMessage = $e->getMessage().$e->getTraceAsString();
                 #We can get here without `$sql` being set when transaction initialization fails
                 /** @noinspection PhpConditionAlreadyCheckedInspection */
-                if (isset($sql) && self::$debug) {
+                if (isset($sql) && Common::$debug) {
                     $sql->debugDumpParams();
                     echo $errMessage;
                     ob_flush();
@@ -283,21 +245,21 @@ abstract class Query
                         #Do nothing, most likely fails due to non-existent cursor.
                     }
                 }
-                if (self::$dbh->inTransaction()) {
-                    self::$dbh->rollBack();
+                if (Common::$dbh->inTransaction()) {
+                    Common::$dbh->rollBack();
                     if (!$deadlock) {
                         throw new \RuntimeException($errMessage, 0, $e);
                     }
                 }
                 #If deadlock - sleep and then retry
                 if ($deadlock) {
-                    sleep(self::$sleep);
+                    sleep(Common::$sleep);
                     continue;
                 }
                 throw new \RuntimeException($errMessage, 0, $e);
             }
-        } while ($try <= self::$maxTries);
-        throw new \RuntimeException('Deadlock encountered for set maximum of '.self::$maxTries.' tries.');
+        } while ($try <= Common::$maxTries);
+        throw new \RuntimeException('Deadlock encountered for set maximum of '.Common::$maxTries.' tries.');
     }
     
     /**
