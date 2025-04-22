@@ -148,7 +148,7 @@ final class Manage extends Query
                 ];
             }
             $result = Select::selectValue($query, $bindings);
-            return 'yes' === mb_strtolower($result, 'UTF-8');
+            return preg_match('/^YES$/ui', $result) === 1;
         } catch (\Throwable $e) {
             throw new \RuntimeException('Failed to check if table exists with `'.$e->getMessage().'`', 0, $e);
         }

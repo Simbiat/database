@@ -20,12 +20,10 @@
     "require": {
         "php": "^8.4",
         "ext-pdo": "*",
-        "ext-mbstring": "*"
+        "simbiat/db-binder": "^1"
     },
     "suggest": {
-        "simbiat/db-pool": "Allows use of database connections pool",
-        "simbiat/cute-bytes": "Allows to present bytes in human-readable format",
-        "simbiat/sand-clock": "Allows better handling of date and time formats"
+        "simbiat/db-pool": "Allows use of database connections pool"
     },
     "autoload": {
         "psr-4": {

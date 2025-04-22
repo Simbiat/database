@@ -3,7 +3,9 @@ declare(strict_types = 1);
 
 namespace Simbiat\Database;
 
-use function is_string, count, in_array;
+use function count;
+use function in_array;
+use function is_string;
 
 /**
  * Base class for various subclasses doing various database operations
@@ -150,7 +152,7 @@ abstract class Query
                     }
                     #Bind values, if any
                     if (!empty($query[1])) {
-                        Bind::binding($sql, $currentBindings);
+                        Bind::bindMultiple($sql, $currentBindings);
                     }
                     #Increasing time limit for potentially long operations (like optimize)
                     set_time_limit(Common::$maxRunTime);
@@ -296,7 +298,9 @@ abstract class Query
         $queries = preg_split('~\([^)]*\)(*SKIP)(*FAIL)|(?<=;)(?! *$)~', $string);
         $filtered = [];
         foreach ($queries as $query) {
-            $query = mb_trim($query, null, 'UTF-8');
+            #Trim first
+            $query = preg_replace('/^(\s*)(.*)(\s*)$/u', '$2', $query);
+            #Skip empty lines (can happen if there are empty ones before and after a query
             if (preg_match('/^\s*$/', $query) === 0) {
                 $filtered[] = $query;
             }
